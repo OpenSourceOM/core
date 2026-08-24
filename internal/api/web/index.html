@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenSourceOM Console</title>
+  <link rel="stylesheet" href="/ui/styles.css" />
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>OpenSourceOM</h1>
+    <p class="tagline">Graph-native cloud security</p>
+  </header>
+
+  <section id="stats" class="stats"></section>
+
+  <main class="layout">
+    <aside>
+      <h2>Findings</h2>
+      <div id="findings" class="findings"></div>
+    </aside>
+    <section class="graph-panel">
+      <div class="graph-toolbar">
+        <h2>Graph Explorer</h2>
+        <select id="query-select">
+          <option value="">Full graph snapshot</option>
+        </select>
+        <button id="rules-btn" type="button">Run CSPM rules</button>
+        <button id="refresh-btn" type="button">Refresh</button>
+      </div>
+      <div id="blast-radius" class="blast-radius hidden"></div>
+      <div id="graph"></div>
+    </section>
+  </main>
+
+  <script src="/ui/app.js"></script>
+</body>
+</html>

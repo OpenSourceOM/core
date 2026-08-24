@@ -1,0 +1,43 @@
+# Copyright 2026 OpenSourceOM
+# SPDX-License-Identifier: Apache-2.0
+# Local dev stack: Postgres + API
+# Usage: cp .env.example .env && docker compose up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-opensourceom}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opensourceom}
+      POSTGRES_DB: ${POSTGRES_DB:-opensourceom}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opensourceom}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${OM_API_PORT:-8080}:8080"
+    environment:
+      OM_ENV: ${OM_ENV:-development}
+      OM_API_PORT: 8080
+      OM_API_SECRET: ${OM_API_SECRET:-change-me-in-production}
+      POSTGRES_USER: ${POSTGRES_USER:-opensourceom}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opensourceom}
+      POSTGRES_DB: ${POSTGRES_DB:-opensourceom}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:

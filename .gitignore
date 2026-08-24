@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Build
+dist/
+build/
+target/
+*.egg-info/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Data / runtime
+data/
+*.db
+*.sqlite
+
+# IDE & OS
+.idea/
+.vscode/
+.DS_Store
+
+# Logs
+*.log
+
+# Docker volumes
+postgres-data/
+graph-data/
