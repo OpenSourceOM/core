@@ -10,6 +10,9 @@ on:
   schedule:
     - cron: "17 6 * * 1"
 
+permissions:
+  contents: read
+
 jobs:
   snyk:
     runs-on: ubuntu-latest
@@ -17,9 +20,9 @@ jobs:
       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
       GOFLAGS: "-buildvcs=false"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.25.13"
           cache-dependency-path: go.sum
@@ -30,20 +33,20 @@ jobs:
 
       - name: Test go.mod
         if: env.SNYK_TOKEN != ''
-        uses: snyk/actions/golang@master
+        uses: snyk/actions/golang@12140f4059e244892ae643824a95459a102120dd
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
           GOFLAGS: "-buildvcs=false"
         with:
-          args: --file=go.mod --severity-threshold=high
+          args: --file=go.mod --severity-threshold=high --policy-path=.snyk
           command: test
 
       - name: Monitor go.mod
         if: env.SNYK_TOKEN != '' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: snyk/actions/golang@master
+        uses: snyk/actions/golang@12140f4059e244892ae643824a95459a102120dd
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
           GOFLAGS: "-buildvcs=false"
         with:
-          args: --file=go.mod
+          args: --file=go.mod --policy-path=.snyk
           command: monitor
