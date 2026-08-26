@@ -45,7 +45,7 @@ Multi-tenant RBAC (admin/viewer roles, account scoping) was considered for Phase
 
 ## Consequences
 
-- CSPM rules are code-defined in Phase 2; YAML rule packs remain a Phase 3 item.
+- CSPM rules are code-defined in Phase 2; YAML rule packs (`packs/*.yaml`) land in Phase 3 and are embedded at compile time.
 - K8s public exposure uses heuristics (LoadBalancer services, ingress labels) — not a full network policy model yet.
 - Role-based access, multi-tenant scoping, and SAML/SSO are out of scope for the OSS core — see [OSS vs. commercial](./ROADMAP.md#open-source-vs-commercial).
 

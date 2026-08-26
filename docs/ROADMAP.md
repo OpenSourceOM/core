@@ -35,8 +35,8 @@ High-level plan for OpenSourceOM core. Timelines are approximate and community-d
 
 - [ ] Plugin SDK for custom collectors
 - [ ] Helm chart for production Kubernetes
-- [ ] Community rule packs (CIS, PCI mappings)
-- [ ] Benchmark suite vs. sample environments
+- [x] Community rule packs (CIS AWS–inspired YAML pack + embed loader)
+- [x] Sample environment (`om scan demo`)
 
 ## Open source vs. commercial
 
