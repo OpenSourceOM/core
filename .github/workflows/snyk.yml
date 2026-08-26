@@ -15,18 +15,35 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      GOFLAGS: "-buildvcs=false"
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.25.13"
           cache-dependency-path: go.sum
 
-      - name: Run Snyk
+      - name: Skip without SNYK_TOKEN
+        if: env.SNYK_TOKEN == ''
+        run: echo "Set repo/org secret SNYK_TOKEN and install the Snyk GitHub App on OpenSourceOM to scan this Go module."
+
+      - name: Test go.mod
         if: env.SNYK_TOKEN != ''
         uses: snyk/actions/golang@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+          GOFLAGS: "-buildvcs=false"
         with:
-          args: --severity-threshold=high
+          args: --file=go.mod --severity-threshold=high
+          command: test
+
+      - name: Monitor go.mod
+        if: env.SNYK_TOKEN != '' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: snyk/actions/golang@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+          GOFLAGS: "-buildvcs=false"
+        with:
+          args: --file=go.mod
+          command: monitor

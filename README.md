@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 # OpenSourceOM Core
 
 [![CI](https://github.com/OpenSourceOM/core/actions/workflows/ci.yml/badge.svg)](https://github.com/OpenSourceOM/core/actions/workflows/ci.yml)
-[![Known Vulnerabilities](https://snyk.io/test/github/OpenSourceOM/core/badge.svg)](https://snyk.io/test/github/OpenSourceOM/core)
+[![Snyk](https://github.com/OpenSourceOM/core/actions/workflows/snyk.yml/badge.svg)](https://github.com/OpenSourceOM/core/actions/workflows/snyk.yml)
 
 **Self-hosted, graph-native cloud security — prioritize what attackers can actually reach.**
 
