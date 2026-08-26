@@ -7,21 +7,23 @@ SPDX-License-Identifier: Apache-2.0
 
 Cloud and platform ingestion plugins. Each collector normalizes provider APIs into the OpenSourceOM graph schema.
 
-## Planned collectors
+## Collectors
 
-| Collector | Provider | Status |
-|-----------|----------|--------|
-| `aws` | Amazon Web Services | Planned |
-| `azure` | Microsoft Azure | Planned |
-| `gcp` | Google Cloud Platform | Planned |
-| `kubernetes` | K8s API | Planned |
+| Collector | Provider | Status | CLI |
+|-----------|----------|--------|-----|
+| `demo` | Sample graph | Available | `om scan demo` |
+| `aws` | Amazon Web Services | Available | `om scan aws` |
+| `azure` | Microsoft Azure | Available | `om scan azure` |
+| `gcp` | Google Cloud Platform | Available | `om scan gcp` |
+| `kubernetes` | K8s API | Available | `om scan k8s` |
 
-## Interface (draft)
+The **demo** collector loads a fixed environment (internet-exposed web tier, production database, public/private buckets, admin vs app identities, public Kubernetes service). Use it to exercise CSPM packs without cloud credentials.
 
-Each collector implements:
+## Interface
+
+Each live collector:
 
 1. **Discover** — list resources and relationships
-2. **Sync** — incremental updates since last run
-3. **Emit** — push normalized nodes/edges to the ingestion API
+2. **Emit** — upsert normalized nodes/edges into the graph store
 
 See [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) for the graph schema.

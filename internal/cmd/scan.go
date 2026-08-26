@@ -9,6 +9,7 @@ import (
 
 	"github.com/OpenSourceOM/core/internal/collectors/aws"
 	"github.com/OpenSourceOM/core/internal/collectors/azure"
+	"github.com/OpenSourceOM/core/internal/collectors/demo"
 	"github.com/OpenSourceOM/core/internal/collectors/gcp"
 	"github.com/OpenSourceOM/core/internal/collectors/k8s"
 	"github.com/OpenSourceOM/core/internal/config"
@@ -70,6 +71,17 @@ var scanK8sCmd = &cobra.Command{
 	},
 }
 
+var scanDemoCmd = &cobra.Command{
+	Use:   "demo",
+	Short: "Load a sample environment (no cloud credentials)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg := loadConfig()
+		return ingestScan(cmd.Context(), cfg, "demo sample environment", func(ctx context.Context) (graph.Batch, error) {
+			return demo.Collect(), nil
+		})
+	},
+}
+
 func ingestScan(ctx context.Context, cfg config.Config, label string, collect func(context.Context) (graph.Batch, error)) error {
 	store, err := openGraphStore(ctx, cfg)
 	if err != nil {
@@ -90,6 +102,7 @@ func ingestScan(ctx context.Context, cfg config.Config, label string, collect fu
 }
 
 func init() {
+	scanCmd.AddCommand(scanDemoCmd)
 	scanCmd.AddCommand(scanAWSCmd)
 	scanCmd.AddCommand(scanAzureCmd)
 	scanCmd.AddCommand(scanGCPCmd)

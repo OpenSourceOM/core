@@ -27,7 +27,7 @@ type Rule struct {
 	Run         func(ctx context.Context, store *graph.Store) ([]Match, error)
 }
 
-var Catalog = []Rule{
+var BuiltinCatalog = []Rule{
 	{
 		ID:          "cspm-public-datastore",
 		Name:        "Public datastore",
@@ -49,6 +49,18 @@ var Catalog = []Rule{
 		BaseScore:   60,
 		Run:         ruleAdminDatastoreAccess,
 	},
+}
+
+// Catalog is builtin graph-context rules plus embedded YAML packs.
+var Catalog []Rule
+
+func init() {
+	Catalog = append([]Rule{}, BuiltinCatalog...)
+	extra, err := LoadEmbeddedPacks()
+	if err != nil {
+		panic(err)
+	}
+	Catalog = append(Catalog, extra...)
 }
 
 func CatalogMap() map[string]string {

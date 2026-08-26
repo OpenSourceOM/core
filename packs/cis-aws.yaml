@@ -1,0 +1,134 @@
+# Copyright 2026 OpenSourceOM
+# SPDX-License-Identifier: Apache-2.0
+
+pack: cis-aws-foundations
+version: "0.1"
+description: CIS AWS Foundations–inspired checks against graph properties (not a certified CIS mapping).
+
+rules:
+  - id: cis-s3-public-access
+    name: S3 bucket allows public access
+    description: Datastore is marked publicly accessible.
+    framework: CIS AWS
+    control: "2.1.5"
+    resource_type: Datastore
+    base_score: 80
+    match:
+      properties:
+        public_access: true
+
+  - id: cis-s3-public-access-block
+    name: S3 public access block disabled
+    description: S3 public access block is disabled.
+    framework: CIS AWS
+    control: "2.1.5"
+    resource_type: Datastore
+    base_score: 75
+    match:
+      properties:
+        public_access_block: disabled
+
+  - id: cis-s3-encryption
+    name: S3 default encryption disabled
+    description: Object store is not encrypted at rest.
+    framework: CIS AWS
+    control: "2.1.1"
+    resource_type: Datastore
+    base_score: 70
+    match:
+      properties:
+        encryption: false
+        service: s3
+
+  - id: cis-s3-versioning
+    name: S3 versioning disabled
+    description: Bucket versioning is off, reducing recovery options.
+    framework: CIS AWS
+    control: "2.1.3"
+    resource_type: Datastore
+    base_score: 40
+    match:
+      properties:
+        versioning: false
+        service: s3
+
+  - id: cis-sg-open-ingress
+    name: Security group allows 0.0.0.0/0
+    description: Network control has unrestricted ingress.
+    framework: CIS AWS
+    control: "5.2"
+    resource_type: Network
+    base_score: 70
+    match:
+      properties:
+        open_ingress: true
+
+  - id: cis-iam-admin
+    name: IAM principal with admin access
+    description: Identity has administrator-level access.
+    framework: CIS AWS
+    control: "1.16"
+    resource_type: Identity
+    base_score: 60
+    match:
+      properties:
+        admin_access: true
+
+  - id: cis-iam-no-mfa
+    name: IAM principal without MFA
+    description: Identity does not require MFA.
+    framework: CIS AWS
+    control: "1.5"
+    resource_type: Identity
+    base_score: 55
+    match:
+      properties:
+        mfa: false
+
+  - id: cis-iam-unused-access-keys
+    name: Unused IAM access keys
+    description: Identity has unused access keys.
+    framework: CIS AWS
+    control: "1.12"
+    resource_type: Identity
+    base_score: 45
+    match:
+      properties:
+        unused_access_keys: true
+
+  - id: cis-ec2-imdsv1
+    name: EC2 instance metadata v1 allowed
+    description: Workload does not require IMDSv2.
+    framework: CIS AWS
+    control: "5.6"
+    resource_type: Workload
+    base_score: 50
+    match:
+      properties:
+        imdsv2: false
+
+  - id: cis-ec2-public-ip
+    name: Workload has a public IP
+    description: Instance is assigned a public IP and is internet-reachable.
+    framework: CIS AWS
+    control: "5.1"
+    resource_type: Workload
+    base_score: 55
+    match:
+      properties:
+        public_ip: true
+      graph:
+        internet_reachable: true
+
+  - id: k8s-public-loadbalancer
+    name: Kubernetes LoadBalancer service
+    description: Service is type LoadBalancer and internet-facing.
+    framework: CIS Kubernetes
+    control: "5.4.1"
+    resource_type: Workload
+    base_score: 65
+    match:
+      properties:
+        k8s_service_type: LoadBalancer
+      graph:
+        internet_reachable: true

@@ -48,7 +48,8 @@ Full design: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 
 ```
 cmd/om/              `om` CLI (migrate, serve, scan, enrich, rules, identity, export)
-internal/collectors/ AWS, Azure, GCP, Kubernetes ingestion
+internal/collectors/ AWS, Azure, GCP, Kubernetes, demo graph
+packs/               Embedded YAML CSPM rule packs
 internal/rules/      CSPM rules engine with graph-context scoring
 internal/graph/      Graph schema, Postgres store, path + blast-radius queries
 internal/enrichment/ CVE lookup (NVD) and severity normalization
@@ -77,12 +78,16 @@ go build -o om ./cmd/om
 # Apply graph schema migrations
 ./om migrate
 
-# Scan cloud / cluster inventory
+# Load the sample graph (no cloud credentials)
+./om scan demo
+
+# Or scan cloud / cluster inventory
 export AWS_REGION=us-east-1
 ./om scan aws
 ./om scan k8s      # requires kubeconfig
 
-# Run CSPM rules (graph-context findings)
+# Run CSPM rules (builtin graph-context + embedded packs)
+./om rules list
 ./om rules run
 
 # Identity blast radius
@@ -103,6 +108,7 @@ open http://localhost:8080
 **Multi-cloud scan:**
 
 ```bash
+./om scan demo     # sample environment, no credentials
 ./om scan aws
 ./om scan azure    # requires AZURE_SUBSCRIPTION_ID + az login
 ./om scan gcp      # requires GCP_PROJECT_ID + ADC
