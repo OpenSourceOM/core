@@ -28,7 +28,7 @@ In scope:
 
 Out of scope:
 
-- Third-party dependencies (report upstream; we will track CVEs). Dependabot opens weekly PRs. Snyk scans `go.mod` in GitHub Actions when `SNYK_TOKEN` is set; install the [Snyk GitHub App](https://github.com/apps/snyk) on the OpenSourceOM org (include `core`) so the project is imported. The public `snyk.io/test/github/...` badge does not detect Go modules reliably. CI also runs [`govulncheck`](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck) and [CodeQL](https://codeql.github.com/); [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/OpenSourceOM/core) publishes a public security score.
+- Third-party dependencies (report upstream; we will track CVEs). Dependabot opens weekly PRs. Snyk scans `go.mod` in GitHub Actions when `SNYK_TOKEN` is set; install the [Snyk GitHub App](https://github.com/apps/snyk) on the OpenSourceOM org (include `core`) so the project is imported. The public `snyk.io/test/github/...` badge does not detect Go modules reliably. CI also runs [`govulncheck`](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck) and [CodeQL](https://codeql.github.com/).
 - Social engineering, physical attacks, denial of service
 
 ## Safe harbor
