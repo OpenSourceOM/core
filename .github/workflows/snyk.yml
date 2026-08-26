@@ -51,10 +51,12 @@ jobs:
           args: --file=go.mod --policy-path=.snyk
           command: monitor
 
-      # snyk test can report no reachable paths while the imported/monitored
-      # project still has Highs (the README badge tracks this job on main).
-      - name: Fail on open Highs in monitored project
-        if: env.SNYK_TOKEN != '' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+      # Package-level snyk test (above) can pass while the GitHub-imported
+      # project still has Highs. This scan uses go.mod/go.sum only, with no
+      # Go toolchain, which matches SCM module-level results. The Snyk API
+      # is not used (this org plan has no API entitlement).
+      - name: Fail on open Highs in go.mod module graph
+        if: env.SNYK_TOKEN != ''
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: python3 scripts/snyk-fail-open-highs.py
+        run: bash scripts/snyk-fail-open-highs.sh
