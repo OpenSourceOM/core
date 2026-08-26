@@ -28,7 +28,7 @@ In scope:
 
 Out of scope:
 
-- Third-party dependencies (report upstream; we will track CVEs). Dependabot opens weekly PRs in this repo; optional [Snyk](https://snyk.io/test/github/OpenSourceOM/core) scanning runs in CI when `SNYK_TOKEN` is set as a GitHub Actions secret.
+- Third-party dependencies (report upstream; we will track CVEs). Dependabot opens weekly PRs. Snyk scans `go.mod` in GitHub Actions when `SNYK_TOKEN` is set; install the [Snyk GitHub App](https://github.com/apps/snyk) on the OpenSourceOM org (include `core`) so the project is imported. The public `snyk.io/test/github/...` badge does not detect Go modules reliably.
 - Social engineering, physical attacks, denial of service
 
 ## Safe harbor
