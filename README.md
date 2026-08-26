@@ -8,7 +8,7 @@ SPDX-License-Identifier: Apache-2.0
 [![CI](https://github.com/OpenSourceOM/core/actions/workflows/ci.yml/badge.svg)](https://github.com/OpenSourceOM/core/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/OpenSourceOM/core/actions/workflows/codeql.yml/badge.svg)](https://github.com/OpenSourceOM/core/actions/workflows/codeql.yml)
 [![Snyk](https://github.com/OpenSourceOM/core/actions/workflows/snyk.yml/badge.svg)](https://github.com/OpenSourceOM/core/actions/workflows/snyk.yml)
-[![License](https://img.shields.io/github/license/OpenSourceOM/core)](./LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 [![Release](https://img.shields.io/github/v/release/OpenSourceOM/core?include_prereleases)](https://github.com/OpenSourceOM/core/releases)
 [![GHCR](https://img.shields.io/badge/ghcr.io-opensourceom%2Fcore-blue?logo=docker&logoColor=white)](https://github.com/OpenSourceOM/core/pkgs/container/core)
 
