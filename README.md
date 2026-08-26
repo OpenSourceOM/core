@@ -11,7 +11,6 @@ SPDX-License-Identifier: Apache-2.0
 [![License](https://img.shields.io/github/license/OpenSourceOM/core)](./LICENSE)
 [![Release](https://img.shields.io/github/v/release/OpenSourceOM/core?include_prereleases)](https://github.com/OpenSourceOM/core/releases)
 [![GHCR](https://img.shields.io/badge/ghcr.io-opensourceom%2Fcore-blue?logo=docker&logoColor=white)](https://github.com/OpenSourceOM/core/pkgs/container/core)
-[![Downloads](https://img.shields.io/github/downloads/OpenSourceOM/core/total)](https://github.com/OpenSourceOM/core/releases)
 
 **Self-hosted, graph-native cloud security — prioritize what attackers can actually reach.**
 
