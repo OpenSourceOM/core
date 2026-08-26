@@ -31,15 +31,16 @@ SPDX-License-Identifier: Apache-2.0
 
 | Component | Location | Notes |
 |-----------|----------|-------|
-| **Collectors** | `internal/collectors/` | AWS, Azure, GCP, Kubernetes (pods, services, service accounts) |
+| **Collectors** | `internal/collectors/` | AWS, Azure, GCP, Kubernetes, demo; AWS emits CIS pack properties |
 | **Graph store** | `internal/graph/`, `migrations/` | PostgreSQL `nodes` + `edges` |
 | **Path queries** | `internal/graph/query.go` | Named queries including `internet-to-datastore` |
 | **Blast radius** | `internal/graph/blastradius.go` | Reachability from identities over `CAN_ACCESS` / `ASSUMES` |
-| **CSPM rules** | `internal/rules/` | Built-in policies with graph-context severity boosts |
+| **CSPM rules** | `internal/rules/` | Built-in policies plus embedded YAML packs |
 | **CVE enrichment** | `internal/enrichment/` | NVD lookup, CVSS → normalized severity |
 | **Exports** | `internal/export/` | SIEM JSONL, Slack webhooks, Jira issues |
 | **API** | `internal/api/` | REST + embedded console at `/`; shared API secret for writes |
 | **CLI** | `cmd/om/`, `internal/cmd/` | `migrate`, `serve`, `scan`, `rules`, `identity`, `export`, … |
+| **Helm** | `deploy/helm/opensourceom/` | API + optional in-cluster Postgres |
 
 ## Graph schema (v0)
 
@@ -61,19 +62,17 @@ See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings
 | API | REST (`net/http`) + shared API secret | Shipped |
 | UI | Embedded static HTML/JS (vis-network) | Shipped |
 | Exports | Webhooks + JSONL + Jira REST | Shipped |
-| Prod deployment | Kubernetes Helm chart | Phase 3 |
+| Prod deployment | Kubernetes Helm chart | Shipped |
 
 ## Deployment
 
 - **Dev:** Docker Compose — Postgres + API (`docker compose up -d`); CLI can also target Postgres directly
-- **Prod:** Kubernetes Helm chart (Phase 3)
+- **Prod:** Helm chart in `deploy/helm/opensourceom/` (API + optional Postgres)
 
 ## What's next (Phase 3)
 
-- Plugin SDK for custom collectors and rule packs
-- Helm chart for production Kubernetes
-- Community rule packs (CIS, PCI mappings)
-- Benchmark suite vs. sample environments
+- Plugin SDK for custom collectors
+- Broader community rule packs (PCI and additional CIS mappings)
 
 Details: [ROADMAP.md](./ROADMAP.md)
 

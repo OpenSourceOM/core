@@ -184,6 +184,16 @@ func (e *Enricher) attachExposureFinding(ctx context.Context, workload graph.Nod
 }
 
 func workloadHasPublicIP(workload graph.Node) bool {
-	ip, _ := workload.Properties["public_ip"].(string)
-	return strings.TrimSpace(ip) != ""
+	switch v := workload.Properties["public_ip"].(type) {
+	case bool:
+		return v
+	case string:
+		if strings.TrimSpace(v) != "" {
+			return true
+		}
+	}
+	if ip, ok := workload.Properties["public_ip_address"].(string); ok {
+		return strings.TrimSpace(ip) != ""
+	}
+	return false
 }

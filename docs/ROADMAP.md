@@ -34,7 +34,7 @@ High-level plan for OpenSourceOM core. Timelines are approximate and community-d
 ## Phase 3 — Ecosystem
 
 - [ ] Plugin SDK for custom collectors
-- [ ] Helm chart for production Kubernetes
+- [x] Helm chart for production Kubernetes
 - [x] Community rule packs (CIS AWS–inspired YAML pack + embed loader)
 - [x] Sample environment (`om scan demo`)
 

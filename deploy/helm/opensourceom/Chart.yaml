@@ -1,0 +1,8 @@
+# Copyright 2026 OpenSourceOM
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: v2
+name: opensourceom
+description: Self-hosted OpenSourceOM Core API and optional Postgres
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
