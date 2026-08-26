@@ -28,7 +28,7 @@ In scope:
 
 Out of scope:
 
-- Third-party dependencies (report upstream; we will track CVEs)
+- Third-party dependencies (report upstream; we will track CVEs). Dependabot opens weekly PRs in this repo; optional [Snyk](https://snyk.io/test/github/OpenSourceOM/core) scanning runs in CI when `SNYK_TOKEN` is set as a GitHub Actions secret.
 - Social engineering, physical attacks, denial of service
 
 ## Safe harbor

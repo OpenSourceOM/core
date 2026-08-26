@@ -5,6 +5,9 @@ SPDX-License-Identifier: Apache-2.0
 
 # OpenSourceOM Core
 
+[![CI](https://github.com/OpenSourceOM/core/actions/workflows/ci.yml/badge.svg)](https://github.com/OpenSourceOM/core/actions/workflows/ci.yml)
+[![Known Vulnerabilities](https://snyk.io/test/github/OpenSourceOM/core/badge.svg)](https://snyk.io/test/github/OpenSourceOM/core)
+
 **Self-hosted, graph-native cloud security — prioritize what attackers can actually reach.**
 
 OpenSourceOM Core is the platform behind [OpenSourceOM](https://opensourceom.org): collectors that ingest cloud inventory and security signals, a graph engine that models attack paths, and APIs/UI to explore risk in context.
