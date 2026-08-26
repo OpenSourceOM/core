@@ -6,6 +6,7 @@
 # CLI `snyk test` with a Go toolchain uses `go list` (package-level) and can
 # report no reachable paths while the GitHub-imported project still has Highs.
 # Scanning only go.mod/go.sum without `go` matches that SCM module-level view.
+# snyk/snyk:alpine ENTRYPOINT is `snyk`, so invoke `test` directly.
 # The Snyk API is not used: this org plan is not entitled for API access.
 set -euo pipefail
 
@@ -16,9 +17,11 @@ trap 'rm -rf "$TMP"' EXIT
 cp "$ROOT/go.mod" "$ROOT/go.sum" "$ROOT/.snyk" "$TMP/"
 
 docker run --rm \
+  --entrypoint snyk \
   -e SNYK_TOKEN \
   -e GOFLAGS="${GOFLAGS:--buildvcs=false}" \
+  -e PATH=/usr/local/bin:/usr/bin:/bin \
   -v "$TMP:/app" \
   -w /app \
   snyk/snyk:alpine \
-  sh -c 'command -v go >/dev/null 2>&1 && echo "error: go present in snyk/snyk:alpine; module-level fallback will not run" >&2 && exit 2; snyk test --file=go.mod --severity-threshold=high --policy-path=.snyk'
+  test --file=go.mod --severity-threshold=high --policy-path=.snyk
