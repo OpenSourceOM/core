@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/OpenSourceOM/core/internal/graph"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -99,11 +100,12 @@ func (c *Collector) collectSecurityGroups(ctx context.Context, client *ec2.Clien
 			Provider:  "aws",
 			Region:    c.Region,
 			AccountID: c.AccountID,
-			Properties: graph.MustProperties(map[string]any{
-				"resource_id":       sgID,
-				"internet_facing": internetFacing,
-				"vpc_id":            aws.ToString(sg.VpcId),
-			}),
+				Properties: graph.MustProperties(map[string]any{
+					"resource_id":     sgID,
+					"internet_facing": internetFacing,
+					"open_ingress":    internetFacing,
+					"vpc_id":          aws.ToString(sg.VpcId),
+				}),
 		})
 	}
 	return nil
@@ -132,10 +134,13 @@ func (c *Collector) collectEC2(ctx context.Context, client *ec2.Client, batch *g
 				Region:    c.Region,
 				AccountID: c.AccountID,
 				Properties: graph.MustProperties(map[string]any{
-					"resource_id": instanceID,
-					"state":       string(instance.State.Name),
-					"public_ip":   aws.ToString(instance.PublicIpAddress),
-					"os_platform": ec2Platform(instance),
+					"resource_id":       instanceID,
+					"instance_type":     string(instance.InstanceType),
+					"state":             string(instance.State.Name),
+					"public_ip":         instanceHasPublicIP(instance),
+					"public_ip_address": aws.ToString(instance.PublicIpAddress),
+					"imdsv2":            instanceIMDSv2Required(instance),
+					"os_platform":       ec2Platform(instance),
 				}),
 			})
 
@@ -186,8 +191,58 @@ func (c *Collector) collectIAM(ctx context.Context, client *iam.Client, batch *g
 				Region:    c.Region,
 				AccountID: c.AccountID,
 				Properties: graph.MustProperties(map[string]any{
-					"arn":          aws.ToString(role.Arn),
-					"admin_access": adminAccess,
+					"arn":            aws.ToString(role.Arn),
+					"principal_type": "role",
+					"admin_access":   adminAccess,
+				}),
+			})
+		}
+	}
+	return c.collectIAMUsers(ctx, client, batch)
+}
+
+func (c *Collector) collectIAMUsers(ctx context.Context, client *iam.Client, batch *graph.Batch) error {
+	paginator := iam.NewListUsersPaginator(client, &iam.ListUsersInput{})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("list iam users: %w", err)
+		}
+		for _, user := range page.Users {
+			userName := aws.ToString(user.UserName)
+			userID := c.nodeID("identity", "user/"+userName)
+			adminAccess := roleLooksAdministrative(userName, aws.ToString(user.Arn))
+
+			mfa := false
+			if mfaOut, err := client.ListMFADevices(ctx, &iam.ListMFADevicesInput{UserName: user.UserName}); err == nil {
+				mfa = len(mfaOut.MFADevices) > 0
+			}
+
+			unusedKeys := false
+			if keysOut, err := client.ListAccessKeys(ctx, &iam.ListAccessKeysInput{UserName: user.UserName}); err == nil {
+				lastUsed := map[string]*time.Time{}
+				for _, key := range keysOut.AccessKeyMetadata {
+					id := aws.ToString(key.AccessKeyId)
+					if used, err := client.GetAccessKeyLastUsed(ctx, &iam.GetAccessKeyLastUsedInput{AccessKeyId: key.AccessKeyId}); err == nil && used.AccessKeyLastUsed != nil {
+						lastUsed[id] = used.AccessKeyLastUsed.LastUsedDate
+					}
+				}
+				unusedKeys = unusedAccessKeys(keysOut.AccessKeyMetadata, lastUsed, 90*24*time.Hour)
+			}
+
+			batch.Nodes = append(batch.Nodes, graph.Node{
+				ID:        userID,
+				Type:      graph.NodeIdentity,
+				Name:      userName,
+				Provider:  "aws",
+				Region:    c.Region,
+				AccountID: c.AccountID,
+				Properties: graph.MustProperties(map[string]any{
+					"arn":                aws.ToString(user.Arn),
+					"principal_type":     "user",
+					"admin_access":       adminAccess,
+					"mfa":                mfa,
+					"unused_access_keys": unusedKeys,
 				}),
 			})
 		}
@@ -206,7 +261,7 @@ func (c *Collector) collectS3(ctx context.Context, client *s3.Client, batch *gra
 		bucketID := c.nodeID("datastore", bucketName)
 
 		publicAccess := false
-		publicAccessBlock := "unknown"
+		publicAccessBlock := "disabled"
 		if blockOut, err := client.GetPublicAccessBlock(ctx, &s3.GetPublicAccessBlockInput{
 			Bucket: bucket.Name,
 		}); err == nil && blockOut.PublicAccessBlockConfiguration != nil {
@@ -215,12 +270,20 @@ func (c *Collector) collectS3(ctx context.Context, client *s3.Client, batch *gra
 				cfg.IgnorePublicAcls != nil && cfg.RestrictPublicBuckets != nil {
 				fullyBlocked := *cfg.BlockPublicAcls && *cfg.BlockPublicPolicy &&
 					*cfg.IgnorePublicAcls && *cfg.RestrictPublicBuckets
-				publicAccessBlock = map[bool]string{true: "enabled", false: "disabled"}[!fullyBlocked]
-				publicAccess = !fullyBlocked
+				publicAccessBlock, publicAccess = s3PublicAccessFlags(true, fullyBlocked)
 			}
 		} else {
-			publicAccessBlock = "not_configured"
-			publicAccess = true
+			publicAccessBlock, publicAccess = s3PublicAccessFlags(false, false)
+		}
+
+		encryption := false
+		if encOut, err := client.GetBucketEncryption(ctx, &s3.GetBucketEncryptionInput{Bucket: bucket.Name}); err == nil {
+			encryption = s3EncryptionEnabled(encOut)
+		}
+
+		versioning := false
+		if verOut, err := client.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{Bucket: bucket.Name}); err == nil {
+			versioning = s3VersioningEnabled(verOut)
 		}
 
 		batch.Nodes = append(batch.Nodes, graph.Node{
@@ -232,8 +295,11 @@ func (c *Collector) collectS3(ctx context.Context, client *s3.Client, batch *gra
 			AccountID: c.AccountID,
 			Properties: graph.MustProperties(map[string]any{
 				"resource_id":         bucketName,
+				"service":             "s3",
 				"public_access":       publicAccess,
 				"public_access_block": publicAccessBlock,
+				"encryption":          encryption,
+				"versioning":          versioning,
 			}),
 		})
 

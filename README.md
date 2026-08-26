@@ -58,6 +58,7 @@ internal/api/        REST API + embedded web console
 migrations/          Postgres schema migrations
 docs/                Architecture, roadmap, ADRs
 docker-compose.yml   Local dev stack (Postgres + API)
+deploy/helm/         Production Kubernetes chart
 ```
 
 ## Quick start
@@ -116,6 +117,16 @@ open http://localhost:8080
 ```
 
 For local CLI-only use without Docker API, run `docker compose up -d postgres` and set `POSTGRES_HOST=localhost`.
+
+**Kubernetes:**
+
+```bash
+docker build -t ghcr.io/opensourceom/core:0.1.0 .
+helm install om deploy/helm/opensourceom \
+  --set api.secret='change-me' \
+  --set postgres.password='change-me' \
+  --set image.tag=0.1.0
+```
 
 Documentation: [opensourceom.org/docs](https://opensourceom.org/docs/)
 

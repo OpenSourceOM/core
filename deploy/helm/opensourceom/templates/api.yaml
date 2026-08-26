@@ -1,0 +1,88 @@
+{{/*
+Copyright 2026 OpenSourceOM
+SPDX-License-Identifier: Apache-2.0
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "opensourceom.fullname" . }}
+  labels:
+    {{- include "opensourceom.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "opensourceom.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        {{- include "opensourceom.labels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      initContainers:
+        {{- if .Values.postgres.enabled }}
+        - name: wait-db
+          image: {{ .Values.postgres.image }}
+          command: ["sh", "-c", "until pg_isready -h \"$POSTGRES_HOST\" -U \"$POSTGRES_USER\"; do sleep 2; done"]
+          env:
+            {{- include "opensourceom.dbEnv" . | nindent 12 }}
+        {{- end }}
+        - name: migrate
+          image: {{ include "opensourceom.image" . }}
+          args: ["migrate"]
+          env:
+            {{- include "opensourceom.dbEnv" . | nindent 12 }}
+      containers:
+        - name: api
+          image: {{ include "opensourceom.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["serve"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: OM_ENV
+              value: {{ .Values.api.env | quote }}
+            - name: OM_API_PORT
+              value: "8080"
+            - name: OM_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "opensourceom.fullname" . }}
+                  key: OM_API_SECRET
+            {{- include "opensourceom.dbEnv" . | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "opensourceom.fullname" . }}
+  labels:
+    {{- include "opensourceom.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ include "opensourceom.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: api
