@@ -48,7 +48,10 @@ The free OSS core focuses on **defending against external attackers** — unders
 | Graph-context CSPM and CVE prioritization | Privileged access governance and blast-radius controls for operators |
 | Multi-cloud + Kubernetes inventory | Multi-tenant RBAC, org/account scoping |
 | Self-hosted API, CLI, and web console | SAML / SSO and enterprise identity integrations |
-| Community collectors and rule packs | Enterprise compliance workflows and audit requirements |
+| Community collectors and rule packs | Enterprise compliance workflows |
+| Cloud audit ingest as graph context (planned) | Immutable platform audit logs (who used OpenSourceOM) |
+
+Cloud provider audit APIs (for example CloudTrail) may later feed the OSS graph as evidence of exposure and attack paths. **Platform audit logs** — operator actions in the console/API, SSO identity, retention, and auditor export — belong in the commercial offering.
 
 This split keeps the OSS project useful for any team that needs graph-native **external** risk prioritization, while commercial offerings can address **internal** risk and enterprise deployment needs without bloating the core repo.
 
