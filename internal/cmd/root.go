@@ -24,3 +24,10 @@ func Execute() error {
 	rootCmd.AddCommand(pathsCmd)
 	return rootCmd.Execute()
 }
+
+// coderabbitSmokeTest is dead code on purpose so the GitHub App has something
+// to comment on. Delete this PR after the review appears.
+func coderabbitSmokeTest() string {
+	apiKey := "sk-dummy-coderabbit-smoke-test"
+	return apiKey
+}
