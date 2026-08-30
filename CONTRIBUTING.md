@@ -14,6 +14,14 @@ Thank you for helping build open cloud security tooling.
 3. Run `docker compose up -d` for local Postgres
 4. Pick an item from [docs/ROADMAP.md](./docs/ROADMAP.md) or open a discussion
 
+## Pull request reviews
+
+[CodeRabbit](https://docs.coderabbit.ai/) comments on pull requests automatically (walkthrough plus inline findings). Config lives in [`.coderabbit.yaml`](./.coderabbit.yaml).
+
+Org owners: install the [CodeRabbit GitHub App](https://github.com/apps/coderabbitai) on `OpenSourceOM` with access to this repo (public OSS is free). Until that install exists, the YAML has no effect.
+
+On a PR you can comment `@coderabbitai review` (incremental) or `@coderabbitai full review`. Prefix a title with `WIP` or `[skip review]` to skip automatic review.
+
 ## Development guidelines
 
 - Keep collectors **read-only** toward cloud accounts by default

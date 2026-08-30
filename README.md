@@ -154,7 +154,7 @@ We welcome issues, discussions, and PRs.
 1. Read the [roadmap](./docs/ROADMAP.md) and [architecture](./docs/ARCHITECTURE.md)
 2. Open a [discussion](https://github.com/OpenSourceOM/core/discussions) before large changes
 3. Keep collectors **read-only** toward cloud accounts by default
-4. See [CONTRIBUTING.md](./CONTRIBUTING.md)
+4. See [CONTRIBUTING.md](./CONTRIBUTING.md) — PRs get an automatic [CodeRabbit](https://docs.coderabbit.ai/) review once the GitHub App is installed on this repo
 
 ## Related repositories
 

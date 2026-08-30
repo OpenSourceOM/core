@@ -1,0 +1,88 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Copyright 2026 OpenSourceOM
+# SPDX-License-Identifier: Apache-2.0
+#
+# Automatic PR reviews via the CodeRabbit GitHub App:
+# https://github.com/apps/coderabbitai
+# Install on OpenSourceOM with access to this repository, then open a PR.
+language: en-US
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  poem: false
+  in_progress_fortune: false
+  review_status: true
+  enable_prompt_for_ai_agents: true
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_incremental_review: true
+    ignore_title_keywords:
+      - WIP
+      - "[skip review]"
+    ignore_usernames:
+      - dependabot[bot]
+      - github-actions[bot]
+  path_filters:
+    - "!go.sum"
+    - "!**/*.svg"
+  path_instructions:
+    - path: "**/*.go"
+      instructions: >-
+        This is a Go cloud-security platform. Prefer small, testable changes.
+        Flag missing error handling, leaked credentials, unbounded retries,
+        unsafe HTTP clients, SQL injection, and overly broad IAM or network
+        assumptions. Collectors must stay read-only toward cloud accounts by
+        default. Require tests for graph queries, normalization, and scoring.
+    - path: "internal/collectors/**"
+      instructions: >-
+        Collectors ingest inventory from AWS, Azure, GCP, Kubernetes, or demo
+        data. Flag write/mutate API calls, overly privileged credentials,
+        missing pagination, and schema mappings that drop identity, network,
+        or data-store edges needed for attack paths.
+    - path: "internal/graph/**"
+      instructions: >-
+        Graph store and path queries. Flag N+1 queries, missing indexes in
+        comments vs migrations, incorrect reachability, and changes that
+        weaken blast-radius or internet-to-datastore semantics.
+    - path: "internal/api/**"
+      instructions: >-
+        REST API and embedded UI. Flag authz gaps, XSS, CSRF on state-changing
+        routes, unsanitized HTML, and overly verbose error responses.
+    - path: "internal/rules/**"
+      instructions: >-
+        CSPM rules engine. Flag false-positive-prone matchers, scoring that
+        ignores graph context, and packs that cannot be audited from YAML.
+    - path: "packs/**"
+      instructions: >-
+        Embedded YAML CSPM packs. Check rule IDs, severity, resource types,
+        and whether the check is actually implementable from collector
+        properties.
+    - path: "migrations/**"
+      instructions: >-
+        Postgres migrations. Flag irreversible data loss, missing roll-forward
+        comments, lock-heavy ALTERs, and schema that diverges from
+        docs/ARCHITECTURE.md.
+    - path: "deploy/**"
+      instructions: >-
+        Helm and deploy manifests. Flag insecure defaults (open services,
+        privileged pods, missing resource limits, plaintext secrets).
+    - path: ".github/workflows/**"
+      instructions: >-
+        Pin third-party actions to full commit SHAs. Flag pull_request_target
+        with untrusted checkout, overly broad permissions, and secret
+        exposure to forks.
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - files: CONTRIBUTING.md
+        applyTo: "**"
+      - files: docs/ARCHITECTURE.md
+        applyTo: "**/*.go,packs/**,migrations/**"
+      - files: SECURITY.md
+        applyTo: "**"
+chat:
+  auto_reply: true
