@@ -213,14 +213,58 @@ func (s *Store) ListFindings(ctx context.Context, limit int) ([]FindingView, err
 	return findings, rows.Err()
 }
 
+func (s *Store) DeleteByAccount(ctx context.Context, accountIDs []string) error {
+	if len(accountIDs) == 0 {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `DELETE FROM nodes WHERE account_id = ANY($1)`, accountIDs)
+	return err
+}
+
+// ReachableFromInternet reports whether nodeID can be reached from the internet
+// by following REACHABLE edges only. Identity and data hops use other edge types.
+func (s *Store) ReachableFromInternet(ctx context.Context, nodeID string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `
+		WITH RECURSIVE reach AS (
+			SELECT e.target_id AS node_id, 1 AS depth, ARRAY[e.source_id, e.target_id] AS seen
+			FROM edges e
+			WHERE e.source_id = $1 AND e.type = $2
+
+			UNION ALL
+
+			SELECT e.target_id, r.depth + 1, r.seen || e.target_id
+			FROM edges e
+			INNER JOIN reach r ON e.source_id = r.node_id
+			WHERE e.type = $2
+			  AND r.depth < 8
+			  AND NOT e.target_id = ANY (r.seen)
+		)
+		SELECT EXISTS (SELECT 1 FROM reach WHERE node_id = $3)
+	`, InternetNodeID, EdgeReachable, nodeID).Scan(&exists)
+	return exists, err
+}
+
 func (s *Store) InternetReachableWorkloadIDs(ctx context.Context) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT DISTINCT e.target_id
-		FROM edges e
-		INNER JOIN nodes n ON n.id = e.target_id
-		WHERE e.source_id = $1
-		  AND e.type = $2
-		  AND n.type = $3
+		WITH RECURSIVE reach AS (
+			SELECT e.target_id AS node_id, 1 AS depth, ARRAY[e.source_id, e.target_id] AS seen
+			FROM edges e
+			WHERE e.source_id = $1 AND e.type = $2
+
+			UNION ALL
+
+			SELECT e.target_id, r.depth + 1, r.seen || e.target_id
+			FROM edges e
+			INNER JOIN reach r ON e.source_id = r.node_id
+			WHERE e.type = $2
+			  AND r.depth < 8
+			  AND NOT e.target_id = ANY (r.seen)
+		)
+		SELECT DISTINCT n.id
+		FROM reach r
+		INNER JOIN nodes n ON n.id = r.node_id
+		WHERE n.type = $3
 	`, InternetNodeID, EdgeReachable, NodeWorkload)
 	if err != nil {
 		return nil, err

@@ -3,27 +3,33 @@
 
 package graph
 
-import "encoding/json"
+import (
+	"encoding/json"
 
-// Node types (schema v0).
-const (
-	NodeInternet  = "Internet"
-	NodeNetwork   = "Network"
-	NodeWorkload  = "Workload"
-	NodeIdentity  = "Identity"
-	NodeDatastore = "Datastore"
-	NodeFinding   = "Finding"
-	NodeControl   = "Control"
+	"github.com/OpenSourceOM/core/sdk/collector"
 )
 
-// Edge types (schema v0).
+// Node and edge type strings match the public collector SDK (schema v0).
 const (
-	EdgeReachable  = "REACHABLE"
-	EdgeAssumes    = "ASSUMES"
-	EdgeCanAccess  = "CAN_ACCESS"
-	EdgeAffects    = "AFFECTS"
-	EdgeViolates   = "VIOLATES"
+	NodeInternet  = collector.NodeInternet
+	NodeNetwork   = collector.NodeNetwork
+	NodeWorkload  = collector.NodeWorkload
+	NodeIdentity  = collector.NodeIdentity
+	NodeDatastore = collector.NodeDatastore
+	NodeFinding   = collector.NodeFinding
+	NodeControl   = collector.NodeControl
 )
+
+const (
+	EdgeReachable = collector.EdgeReachable
+	EdgeAssumes   = collector.EdgeAssumes
+	EdgeCanAccess = collector.EdgeCanAccess
+	EdgeAffects   = collector.EdgeAffects
+	EdgeViolates  = collector.EdgeViolates
+)
+
+// InternetNodeID is the stable id of the synthetic internet node.
+const InternetNodeID = collector.InternetNodeID
 
 type Node struct {
 	ID         string         `json:"id"`
@@ -49,8 +55,8 @@ type Batch struct {
 }
 
 type Stats struct {
-	Nodes int            `json:"nodes"`
-	Edges int            `json:"edges"`
+	Nodes  int            `json:"nodes"`
+	Edges  int            `json:"edges"`
 	ByType map[string]int `json:"by_type"`
 }
 

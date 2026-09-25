@@ -6,6 +6,9 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/OpenSourceOM/core/internal/collectors/aws"
 	"github.com/OpenSourceOM/core/internal/collectors/azure"
@@ -14,6 +17,8 @@ import (
 	"github.com/OpenSourceOM/core/internal/collectors/k8s"
 	"github.com/OpenSourceOM/core/internal/config"
 	"github.com/OpenSourceOM/core/internal/graph"
+	"github.com/OpenSourceOM/core/internal/plugins"
+	"github.com/OpenSourceOM/core/internal/rules"
 	"github.com/spf13/cobra"
 )
 
@@ -71,15 +76,109 @@ var scanK8sCmd = &cobra.Command{
 	},
 }
 
-var scanDemoCmd = &cobra.Command{
-	Use:   "demo",
-	Short: "Load a sample environment (no cloud credentials)",
+var pluginTimeout time.Duration
+
+var scanPluginCmd = &cobra.Command{
+	Use:   "plugin [--] <executable> [args...]",
+	Short: "Run an external collector plugin and ingest its graph batch",
+	Long: `Run a collector plugin and upsert the graph batch it writes to stdout.
+
+The executable inherits om's environment. On success, stdout must be one JSON
+object with "nodes" and "edges" (package sdk/collector). Diagnostics go to
+stderr. Put plugin flags after -- so om does not parse them:
+
+  om scan plugin --timeout 5m -- ./my-collector --region us-east-1`,
+	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := loadConfig()
-		return ingestScan(cmd.Context(), cfg, "demo sample environment", func(ctx context.Context) (graph.Batch, error) {
-			return demo.Collect(), nil
+		exe := args[0]
+		pluginArgs := args[1:]
+		label := fmt.Sprintf("plugin %s", filepath.Base(exe))
+		return ingestScan(cmd.Context(), cfg, label, func(ctx context.Context) (graph.Batch, error) {
+			runCtx, cancel := context.WithTimeout(ctx, pluginTimeout)
+			defer cancel()
+			return plugins.Run(runCtx, exe, pluginArgs)
 		})
 	},
+}
+
+var scanDemoCmd = &cobra.Command{
+	Use:   "demo",
+	Short: "Load a sample environment and print the attack path (no cloud credentials)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg := loadConfig()
+		ctx := cmd.Context()
+		store, err := openGraphStore(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+
+		if err := store.DeleteByAccount(ctx, demo.AccountIDs()); err != nil {
+			return err
+		}
+		batch := demo.Collect()
+		if err := store.UpsertBatch(ctx, batch); err != nil {
+			return err
+		}
+		fmt.Printf("Ingested %d nodes and %d edges from demo sample environment.\n", len(batch.Nodes), len(batch.Edges))
+
+		engine := rules.NewEngine(store)
+		result, err := engine.RunAll(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Ran %d rules, created/updated %d findings.\n\n", len(rules.Catalog), result.FindingsCreated)
+
+		hops, err := demo.AttackHops(batch)
+		if err != nil {
+			return err
+		}
+		fmt.Println("Attack path:")
+		names := make([]string, 0, len(hops)+1)
+		names = append(names, hops[0].SourceName)
+		for _, hop := range hops {
+			names = append(names, hop.TargetName)
+		}
+		fmt.Printf("  %s\n\n", strings.Join(names, " → "))
+		for _, hop := range hops {
+			fmt.Printf("  %s → %s (%s)\n    %s\n", hop.SourceName, hop.TargetName, hop.Type, hop.Reason)
+		}
+
+		findings, err := store.ListFindings(ctx, 200)
+		if err != nil {
+			return err
+		}
+		fmt.Println("\nHighest findings:")
+		shown := 0
+		demoAccounts := map[string]bool{demo.AccountID: true, demo.K8sAccountID: true}
+		for _, view := range findings {
+			if !demoAccounts[view.Finding.AccountID] {
+				continue
+			}
+			if shown == 8 {
+				break
+			}
+			shown++
+			props := view.Finding.Properties
+			fmt.Printf("  %s %v  %s  %s\n    %s\n",
+				propString(props, "severity"),
+				props["normalized_score"],
+				view.Finding.Name,
+				view.AffectedResourceName,
+				propString(props, "description"),
+			)
+		}
+		return nil
+	},
+}
+
+func propString(props map[string]any, key string) string {
+	value, ok := props[key]
+	if !ok || value == nil {
+		return ""
+	}
+	return fmt.Sprint(value)
 }
 
 func ingestScan(ctx context.Context, cfg config.Config, label string, collect func(context.Context) (graph.Batch, error)) error {
@@ -102,7 +201,9 @@ func ingestScan(ctx context.Context, cfg config.Config, label string, collect fu
 }
 
 func init() {
+	scanPluginCmd.Flags().DurationVar(&pluginTimeout, "timeout", 10*time.Minute, "maximum time to wait for the plugin")
 	scanCmd.AddCommand(scanDemoCmd)
+	scanCmd.AddCommand(scanPluginCmd)
 	scanCmd.AddCommand(scanAWSCmd)
 	scanCmd.AddCommand(scanAzureCmd)
 	scanCmd.AddCommand(scanGCPCmd)

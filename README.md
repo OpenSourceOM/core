@@ -21,7 +21,7 @@ OpenSourceOM Core is the platform behind [opensourceom.org](https://opensourceom
 
 Traditional scanners flood you with CVEs and misconfigurations. OpenSourceOM connects the dots — showing which findings sit on paths from the internet to your sensitive data and privileged identities.
 
-> **Status:** Early development (Phase 2). CSPM rules, identity blast radius, Kubernetes ingest, and export integrations are available. See the [roadmap](./docs/ROADMAP.md) for Phase 3.
+> **Status:** Early development (Phase 3). CSPM rules, identity blast radius, Kubernetes ingest, exports, and a collector plugin SDK are available. See the [roadmap](./docs/ROADMAP.md).
 
 ## Why this exists
 
@@ -58,6 +58,8 @@ Full design: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 
 ```
 cmd/om/              `om` CLI (migrate, serve, scan, enrich, rules, identity, export)
+sdk/collector/       Public SDK for external collector plugins
+examples/collector/  Sample plugin (`om scan plugin`)
 internal/collectors/ AWS, Azure, GCP, Kubernetes, demo graph
 packs/               Embedded YAML CSPM rule packs
 internal/rules/      CSPM rules engine with graph-context scoring
@@ -97,6 +99,10 @@ export AWS_REGION=us-east-1
 ./om scan aws
 ./om scan k8s      # requires kubeconfig
 
+# Or ingest a custom collector (stdout is a graph batch)
+go build -o example-collector ./examples/collector
+./om scan plugin -- ./example-collector
+
 # Run CSPM rules (builtin graph-context + embedded packs)
 ./om rules list
 ./om rules run
@@ -124,6 +130,7 @@ open http://localhost:8080
 ./om scan azure    # requires AZURE_SUBSCRIPTION_ID + az login
 ./om scan gcp      # requires GCP_PROJECT_ID + ADC
 ./om scan k8s      # requires kubeconfig or in-cluster credentials
+./om scan plugin -- ./my-collector
 ```
 
 For local CLI-only use without Docker API, run `docker compose up -d postgres` and set `POSTGRES_HOST=localhost`.
@@ -146,8 +153,8 @@ Full documentation: [opensourceom.org](https://opensourceom.org) (docs at [opens
 |-------|--------|
 | **0** | Graph schema v0, AWS collector, ingest API, `om` CLI |
 | **1** | Attack path queries, CVE enrichment, web UI, Azure/GCP collectors |
-| **2** *(now)* | CSPM rules, blast radius, K8s connector, exports |
-| **3** | Plugin SDK, Helm chart, community rule packs |
+| **2** | CSPM rules, blast radius, K8s connector, exports |
+| **3** *(now)* | Plugin SDK, Helm chart, community rule packs |
 
 Details: [docs/ROADMAP.md](./docs/ROADMAP.md)
 

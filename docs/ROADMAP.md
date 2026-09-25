@@ -31,9 +31,10 @@ High-level plan for OpenSourceOM core. Timelines are approximate and community-d
 - [x] Kubernetes inventory connector
 - [x] SIEM / Jira / Slack export
 
-## Phase 3 — Ecosystem
+## Phase 3 — Ecosystem *(current)*
 
-- [ ] Plugin SDK for custom collectors
+- [x] Plugin SDK for custom collectors (`sdk/collector`, `om scan plugin`)
+- [ ] Broader community rule packs (PCI and additional CIS mappings)
 - [x] Helm chart for production Kubernetes
 - [x] Community rule packs (CIS AWS–inspired YAML pack + embed loader)
 - [x] Sample environment (`om scan demo`)

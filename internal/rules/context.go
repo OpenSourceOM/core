@@ -18,7 +18,7 @@ func (c GraphContext) ScoreBoost(base int) int {
 		score += 10
 	}
 	if c.PathToDatastore {
-		score += 15
+		score += 25
 	}
 	if c.AdminCanAccess {
 		score += 5
@@ -27,6 +27,17 @@ func (c GraphContext) ScoreBoost(base int) int {
 		return 100
 	}
 	return score
+}
+
+// RankReason explains the score in terms of the path, for finding text.
+func (c GraphContext) RankReason() string {
+	if c.PathToDatastore {
+		return "Score includes a path from the internet through a workload to a datastore."
+	}
+	if c.InternetReachable {
+		return "Internet-reachable, with no path from the internet to a datastore."
+	}
+	return ""
 }
 
 func SeverityFromScore(score int) string {

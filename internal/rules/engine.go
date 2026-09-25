@@ -126,6 +126,10 @@ func (e *Engine) Run(ctx context.Context, ruleID string) (RunResult, error) {
 
 func (e *Engine) persistFinding(ctx context.Context, rule Rule, match Match) error {
 	score := match.Context.ScoreBoost(match.BaseScore)
+	description := match.Description
+	if reason := match.Context.RankReason(); reason != "" {
+		description += " " + reason
+	}
 	findingID := fmt.Sprintf("finding:%s:%s", rule.ID, match.Resource.ID)
 
 	batch := graph.Batch{
@@ -138,13 +142,13 @@ func (e *Engine) persistFinding(ctx context.Context, rule Rule, match Match) err
 				Region:    match.Resource.Region,
 				AccountID: match.Resource.AccountID,
 				Properties: graph.MustProperties(map[string]any{
-					"finding_type":     "cspm",
-					"rule_id":          rule.ID,
-					"title":            match.Title,
-					"description":      match.Description,
-					"severity":         SeverityFromScore(score),
-					"normalized_score": score,
-					"graph_context":    match.Context,
+					"finding_type":      "cspm",
+					"rule_id":           rule.ID,
+					"title":             match.Title,
+					"description":       description,
+					"severity":          SeverityFromScore(score),
+					"normalized_score":  score,
+					"graph_context":     match.Context,
 					"affected_resource": match.Resource.ID,
 				}),
 			},
@@ -240,7 +244,7 @@ func ruleAdminDatastoreAccess(ctx context.Context, store *graph.Store) ([]Match,
 }
 
 func loadGraphContext(ctx context.Context, store *graph.Store, nodeID string) (GraphContext, error) {
-	internet, err := store.HasIncomingEdge(ctx, graph.InternetNodeID, nodeID, graph.EdgeReachable)
+	internet, err := store.ReachableFromInternet(ctx, nodeID)
 	if err != nil {
 		return GraphContext{}, err
 	}

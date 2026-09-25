@@ -105,7 +105,7 @@ h2 { margin: 0 0 0.75rem; font-size: 1rem; }
   border-radius: 8px;
   padding: 0.4rem 0.6rem;
 }
-.blast-radius {
+.blast-radius, .detail-panel {
   margin-bottom: 0.75rem;
   padding: 0.75rem;
   border: 1px solid var(--border);
@@ -114,7 +114,9 @@ h2 { margin: 0 0 0.75rem; font-size: 1rem; }
   color: var(--muted);
   font-size: 0.9rem;
 }
-.blast-radius.hidden { display: none; }
+.blast-radius.hidden, .detail-panel.hidden { display: none; }
+.detail-panel ol { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+.detail-panel li { margin: 0.35rem 0; }
 #graph {
   height: calc(100vh - 260px);
   min-height: 420px;

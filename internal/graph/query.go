@@ -10,13 +10,11 @@ import (
 	"strings"
 )
 
-const InternetNodeID = "internet:global"
-
 var NamedQueries = map[string]string{
 	"internet-to-workload":            "Paths from the internet to reachable workloads",
-	"internet-to-datastore":         "Paths from the internet through workloads to datastores",
-	"public-s3-buckets":             "S3 buckets with public exposure indicators",
-	"admin-identities":              "IAM roles with broad administrative permissions",
+	"internet-to-datastore":           "Paths from the internet through workloads to datastores",
+	"public-s3-buckets":               "S3 buckets with public exposure indicators",
+	"admin-identities":                "IAM roles with broad administrative permissions",
 	"toxic-s3-public-with-admin-role": "Public S3 buckets linked to admin-capable identities",
 }
 

@@ -83,11 +83,12 @@ function renderFindings(findings) {
     const f = item.finding;
     const props = f.properties || {};
     const severity = props.severity || "info";
+    const score = props.normalized_score ?? "";
     return `
       <article class="finding" data-target="${item.affected_resource_id || ""}">
-        <span class="severity ${severityClass(severity)}">${severity}</span>
+        <span class="severity ${severityClass(severity)}">${severity}${score === "" ? "" : " " + score}</span>
         <div class="title">${f.name}</div>
-        <div class="meta">${props.title || ""}</div>
+        <div class="meta">${props.description || props.title || ""}</div>
         <div class="meta">${item.affected_resource_name || "Unknown resource"}</div>
       </article>
     `;
@@ -112,6 +113,7 @@ function toVisEdges(edges) {
     from: e.source_id,
     to: e.target_id,
     label: e.type,
+    title: (e.properties && e.properties.reason) || e.type,
     arrows: "to",
     color: { color: "#495057" },
     font: { align: "middle", size: 10, color: "#adb5bd" },
@@ -155,58 +157,90 @@ async function loadQueries() {
     opt.textContent = `${entry.name} — ${entry.description}`;
     select.appendChild(opt);
   });
+  if ([...select.options].some((opt) => opt.value === "internet-to-datastore")) {
+    select.value = "internet-to-datastore";
+  }
 }
 
-async function loadGraphSnapshot() {
-  const snapshot = await fetchJSON("/v1/graph/snapshot");
-  renderGraph(snapshot.nodes, snapshot.edges);
+function findEdge(edges, sourceID, targetID) {
+  return (edges || []).find((edge) => edge.source_id === sourceID && edge.target_id === targetID);
 }
 
-async function loadPathQuery(name) {
-  const result = await fetchJSON(`/v1/graph/query?name=${encodeURIComponent(name)}`);
+function escapeHTML(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function renderPathDetail(paths, edges) {
+  const panel = document.getElementById("path-detail");
+  if (!paths.length) {
+    panel.classList.add("hidden");
+    panel.innerHTML = "";
+    return;
+  }
+  panel.classList.remove("hidden");
+  panel.innerHTML = paths.map((path, index) => {
+    const hops = [];
+    for (let i = 1; i < path.length; i++) {
+      const edge = findEdge(edges, path[i - 1].id, path[i].id);
+      const reason = edge?.properties?.reason || "";
+      hops.push(
+        `<li><strong>${escapeHTML(path[i - 1].name)} → ${escapeHTML(path[i].name)}</strong> (${escapeHTML(edge?.type || "PATH")})` +
+        (reason ? `<br>${escapeHTML(reason)}` : "") +
+        `</li>`,
+      );
+    }
+    const names = path.map((node) => escapeHTML(node.name)).join(" → ");
+    return `<p><strong>Path ${index + 1}.</strong> ${names}</p><ol>${hops.join("")}</ol>`;
+  }).join("");
+}
+
+function pathGraph(paths, snapshotEdges) {
   const nodes = [];
   const edges = [];
   const seenNodes = new Set();
   const seenEdges = new Set();
-
-  for (const path of result.paths || []) {
+  for (const path of paths) {
     for (let i = 0; i < path.length; i++) {
       const node = path[i];
       if (!seenNodes.has(node.id)) {
         seenNodes.add(node.id);
         nodes.push(node);
       }
-      if (i > 0) {
-        const prev = path[i - 1];
-        const key = `${prev.id}->${node.id}`;
-        if (!seenEdges.has(key)) {
-          seenEdges.add(key);
-          edges.push({
-            source_id: prev.id,
-            target_id: node.id,
-            type: "PATH",
-          });
-        }
-      }
+      if (i === 0) continue;
+      const prev = path[i - 1];
+      const key = `${prev.id}->${node.id}`;
+      if (seenEdges.has(key)) continue;
+      seenEdges.add(key);
+      const edge = findEdge(snapshotEdges, prev.id, node.id);
+      edges.push(edge || { source_id: prev.id, target_id: node.id, type: "PATH" });
     }
   }
-  renderGraph(nodes, edges);
+  return { nodes, edges };
 }
 
 async function refresh() {
-  const [stats, findings] = await Promise.all([
+  const query = document.getElementById("query-select").value;
+  const [stats, findings, snapshot] = await Promise.all([
     fetchJSON("/v1/graph/stats"),
     fetchJSON("/v1/findings"),
+    fetchJSON("/v1/graph/snapshot"),
   ]);
   renderStats(stats);
   renderFindings(findings);
 
-  const query = document.getElementById("query-select").value;
   if (query) {
-    await loadPathQuery(query);
-  } else {
-    await loadGraphSnapshot();
+    const result = await fetchJSON(`/v1/graph/query?name=${encodeURIComponent(query)}`);
+    const paths = result.paths || [];
+    renderPathDetail(paths, snapshot.edges);
+    const built = pathGraph(paths, snapshot.edges);
+    renderGraph(built.nodes, built.edges);
+    return;
   }
+  document.getElementById("path-detail").classList.add("hidden");
+  renderGraph(snapshot.nodes, snapshot.edges);
 }
 
 document.getElementById("refresh-btn").addEventListener("click", refresh);
