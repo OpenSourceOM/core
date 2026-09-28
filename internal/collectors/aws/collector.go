@@ -85,113 +85,143 @@ func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
 	return batch, nil
 }
 
-func (c *Collector) collectSecurityGroups(ctx context.Context, client *ec2.Client, batch *graph.Batch, groups map[string]ec2types.SecurityGroup) error {
-	out, err := client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{})
-	if err != nil {
-		return fmt.Errorf("describe security groups: %w", err)
-	}
-
-	for _, sg := range out.SecurityGroups {
-		sgID := aws.ToString(sg.GroupId)
-		internetFacing := securityGroupAllowsInternetIngress(sg)
-		groups[sgID] = sg
-		batch.Nodes = append(batch.Nodes, graph.Node{
-			ID:        c.nodeID("network", sgID),
-			Type:      graph.NodeNetwork,
-			Name:      aws.ToString(sg.GroupName),
-			Provider:  "aws",
-			Region:    c.Region,
-			AccountID: c.AccountID,
-			Properties: graph.MustProperties(map[string]any{
-				"resource_id":     sgID,
-				"internet_facing": internetFacing,
-				"open_ingress":    internetFacing,
-				"vpc_id":          aws.ToString(sg.VpcId),
-			}),
-		})
-	}
-	return nil
+// s3API is the S3 operations the collector pages and reads.
+type s3API interface {
+	ListBuckets(context.Context, *s3.ListBucketsInput, ...func(*s3.Options)) (*s3.ListBucketsOutput, error)
+	GetPublicAccessBlock(context.Context, *s3.GetPublicAccessBlockInput, ...func(*s3.Options)) (*s3.GetPublicAccessBlockOutput, error)
+	GetBucketAcl(context.Context, *s3.GetBucketAclInput, ...func(*s3.Options)) (*s3.GetBucketAclOutput, error)
+	GetBucketPolicy(context.Context, *s3.GetBucketPolicyInput, ...func(*s3.Options)) (*s3.GetBucketPolicyOutput, error)
+	GetBucketEncryption(context.Context, *s3.GetBucketEncryptionInput, ...func(*s3.Options)) (*s3.GetBucketEncryptionOutput, error)
+	GetBucketVersioning(context.Context, *s3.GetBucketVersioningInput, ...func(*s3.Options)) (*s3.GetBucketVersioningOutput, error)
 }
 
-func (c *Collector) collectEC2(ctx context.Context, client *ec2.Client, batch *graph.Batch, groups map[string]ec2types.SecurityGroup, profiles *[]instanceProfileUse) error {
-	out, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{})
-	if err != nil {
-		return fmt.Errorf("describe instances: %w", err)
-	}
+// iamAPI is the IAM operations used to list roles and users.
+type iamAPI interface {
+	ListRoles(context.Context, *iam.ListRolesInput, ...func(*iam.Options)) (*iam.ListRolesOutput, error)
+	ListUsers(context.Context, *iam.ListUsersInput, ...func(*iam.Options)) (*iam.ListUsersOutput, error)
+	ListMFADevices(context.Context, *iam.ListMFADevicesInput, ...func(*iam.Options)) (*iam.ListMFADevicesOutput, error)
+	ListAccessKeys(context.Context, *iam.ListAccessKeysInput, ...func(*iam.Options)) (*iam.ListAccessKeysOutput, error)
+	GetAccessKeyLastUsed(context.Context, *iam.GetAccessKeyLastUsedInput, ...func(*iam.Options)) (*iam.GetAccessKeyLastUsedOutput, error)
+}
 
-	for _, reservation := range out.Reservations {
-		for _, instance := range reservation.Instances {
-			if instance.InstanceId == nil {
-				continue
-			}
-			instanceID := aws.ToString(instance.InstanceId)
-			name := instanceName(instance)
-			workloadID := c.nodeID("workload", instanceID)
+var (
+	_ s3API  = (*s3.Client)(nil)
+	_ iamAPI = (*iam.Client)(nil)
+)
 
+func (c *Collector) collectSecurityGroups(ctx context.Context, client ec2.DescribeSecurityGroupsAPIClient, batch *graph.Batch, groups map[string]ec2types.SecurityGroup) error {
+	paginator := ec2.NewDescribeSecurityGroupsPaginator(client, &ec2.DescribeSecurityGroupsInput{})
+	for paginator.HasMorePages() {
+		out, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("describe security groups: %w", err)
+		}
+
+		for _, sg := range out.SecurityGroups {
+			sgID := aws.ToString(sg.GroupId)
+			internetFacing := securityGroupAllowsInternetIngress(sg)
+			groups[sgID] = sg
 			batch.Nodes = append(batch.Nodes, graph.Node{
-				ID:        workloadID,
-				Type:      graph.NodeWorkload,
-				Name:      name,
+				ID:        c.nodeID("network", sgID),
+				Type:      graph.NodeNetwork,
+				Name:      aws.ToString(sg.GroupName),
 				Provider:  "aws",
 				Region:    c.Region,
 				AccountID: c.AccountID,
 				Properties: graph.MustProperties(map[string]any{
-					"resource_id":       instanceID,
-					"instance_type":     string(instance.InstanceType),
-					"state":             string(instance.State.Name),
-					"public_ip":         instanceHasPublicIP(instance),
-					"public_ip_address": aws.ToString(instance.PublicIpAddress),
-					"imdsv2":            instanceIMDSv2Required(instance),
-					"os_platform":       ec2Platform(instance),
+					"resource_id":     sgID,
+					"internet_facing": internetFacing,
+					"open_ingress":    internetFacing,
+					"vpc_id":          aws.ToString(sg.VpcId),
 				}),
 			})
+		}
+	}
+	return nil
+}
 
-			if instance.IamInstanceProfile != nil {
-				if arn := aws.ToString(instance.IamInstanceProfile.Arn); arn != "" {
-					*profiles = append(*profiles, instanceProfileUse{
-						workloadID: workloadID,
-						profileARN: arn,
-					})
-				}
-			}
+func (c *Collector) collectEC2(ctx context.Context, client ec2.DescribeInstancesAPIClient, batch *graph.Batch, groups map[string]ec2types.SecurityGroup, profiles *[]instanceProfileUse) error {
+	paginator := ec2.NewDescribeInstancesPaginator(client, &ec2.DescribeInstancesInput{})
+	for paginator.HasMorePages() {
+		out, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("describe instances: %w", err)
+		}
 
-			var attached []ec2types.SecurityGroup
-			viaGroup := ""
-			for _, sgRef := range instance.SecurityGroups {
-				sgID := aws.ToString(sgRef.GroupId)
-				sgNodeID := c.nodeID("network", sgID)
-				batch.Edges = append(batch.Edges, graph.Edge{
-					ID:       c.edgeID(workloadID, sgNodeID, graph.EdgeAffects),
-					SourceID: workloadID,
-					TargetID: sgNodeID,
-					Type:     graph.EdgeAffects,
-				})
-				sg, ok := groups[sgID]
-				if !ok {
+		for _, reservation := range out.Reservations {
+			for _, instance := range reservation.Instances {
+				if instance.InstanceId == nil {
 					continue
 				}
-				attached = append(attached, sg)
-				if viaGroup == "" && securityGroupAllowsInternetIngress(sg) {
-					viaGroup = sgID
-				}
-			}
-			if instanceInternetReachable(instance, attached) {
-				batch.Edges = append(batch.Edges, graph.Edge{
-					ID:       c.edgeID(graph.InternetNodeID, workloadID, graph.EdgeReachable),
-					SourceID: graph.InternetNodeID,
-					TargetID: workloadID,
-					Type:     graph.EdgeReachable,
+				instanceID := aws.ToString(instance.InstanceId)
+				name := instanceName(instance)
+				workloadID := c.nodeID("workload", instanceID)
+
+				batch.Nodes = append(batch.Nodes, graph.Node{
+					ID:        workloadID,
+					Type:      graph.NodeWorkload,
+					Name:      name,
+					Provider:  "aws",
+					Region:    c.Region,
+					AccountID: c.AccountID,
 					Properties: graph.MustProperties(map[string]any{
-						"via_security_group": viaGroup,
+						"resource_id":       instanceID,
+						"instance_type":     string(instance.InstanceType),
+						"state":             string(instance.State.Name),
+						"public_ip":         instanceHasPublicIP(instance),
+						"public_ip_address": aws.ToString(instance.PublicIpAddress),
+						"imdsv2":            instanceIMDSv2Required(instance),
+						"os_platform":       ec2Platform(instance),
 					}),
 				})
+
+				if instance.IamInstanceProfile != nil {
+					if arn := aws.ToString(instance.IamInstanceProfile.Arn); arn != "" {
+						*profiles = append(*profiles, instanceProfileUse{
+							workloadID: workloadID,
+							profileARN: arn,
+						})
+					}
+				}
+
+				var attached []ec2types.SecurityGroup
+				viaGroup := ""
+				for _, sgRef := range instance.SecurityGroups {
+					sgID := aws.ToString(sgRef.GroupId)
+					sgNodeID := c.nodeID("network", sgID)
+					batch.Edges = append(batch.Edges, graph.Edge{
+						ID:       c.edgeID(workloadID, sgNodeID, graph.EdgeAffects),
+						SourceID: workloadID,
+						TargetID: sgNodeID,
+						Type:     graph.EdgeAffects,
+					})
+					sg, ok := groups[sgID]
+					if !ok {
+						continue
+					}
+					attached = append(attached, sg)
+					if viaGroup == "" && securityGroupAllowsInternetIngress(sg) {
+						viaGroup = sgID
+					}
+				}
+				if instanceInternetReachable(instance, attached) {
+					batch.Edges = append(batch.Edges, graph.Edge{
+						ID:       c.edgeID(graph.InternetNodeID, workloadID, graph.EdgeReachable),
+						SourceID: graph.InternetNodeID,
+						TargetID: workloadID,
+						Type:     graph.EdgeReachable,
+						Properties: graph.MustProperties(map[string]any{
+							"via_security_group": viaGroup,
+						}),
+					})
+				}
 			}
 		}
 	}
 	return nil
 }
 
-func (c *Collector) collectIAM(ctx context.Context, client *iam.Client, batch *graph.Batch) error {
+func (c *Collector) collectIAM(ctx context.Context, client iamAPI, batch *graph.Batch) error {
 	paginator := iam.NewListRolesPaginator(client, &iam.ListRolesInput{})
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
@@ -200,7 +230,7 @@ func (c *Collector) collectIAM(ctx context.Context, client *iam.Client, batch *g
 		}
 		for _, role := range page.Roles {
 			roleName := aws.ToString(role.RoleName)
-			roleID := c.nodeID("identity", roleName)
+			roleID := c.globalNodeID("identity", roleName)
 			adminAccess := roleLooksAdministrative(roleName, aws.ToString(role.Arn))
 
 			batch.Nodes = append(batch.Nodes, graph.Node{
@@ -208,7 +238,6 @@ func (c *Collector) collectIAM(ctx context.Context, client *iam.Client, batch *g
 				Type:      graph.NodeIdentity,
 				Name:      roleName,
 				Provider:  "aws",
-				Region:    c.Region,
 				AccountID: c.AccountID,
 				Properties: graph.MustProperties(map[string]any{
 					"arn":            aws.ToString(role.Arn),
@@ -221,7 +250,7 @@ func (c *Collector) collectIAM(ctx context.Context, client *iam.Client, batch *g
 	return c.collectIAMUsers(ctx, client, batch)
 }
 
-func (c *Collector) collectIAMUsers(ctx context.Context, client *iam.Client, batch *graph.Batch) error {
+func (c *Collector) collectIAMUsers(ctx context.Context, client iamAPI, batch *graph.Batch) error {
 	paginator := iam.NewListUsersPaginator(client, &iam.ListUsersInput{})
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
@@ -230,7 +259,7 @@ func (c *Collector) collectIAMUsers(ctx context.Context, client *iam.Client, bat
 		}
 		for _, user := range page.Users {
 			userName := aws.ToString(user.UserName)
-			userID := c.nodeID("identity", "user/"+userName)
+			userID := c.globalNodeID("identity", "user/"+userName)
 			adminAccess := roleLooksAdministrative(userName, aws.ToString(user.Arn))
 
 			mfa := false
@@ -255,7 +284,6 @@ func (c *Collector) collectIAMUsers(ctx context.Context, client *iam.Client, bat
 				Type:      graph.NodeIdentity,
 				Name:      userName,
 				Provider:  "aws",
-				Region:    c.Region,
 				AccountID: c.AccountID,
 				Properties: graph.MustProperties(map[string]any{
 					"arn":                aws.ToString(user.Arn),
@@ -270,68 +298,74 @@ func (c *Collector) collectIAMUsers(ctx context.Context, client *iam.Client, bat
 	return nil
 }
 
-func (c *Collector) collectS3(ctx context.Context, client *s3.Client, batch *graph.Batch) error {
-	out, err := client.ListBuckets(ctx, &s3.ListBucketsInput{})
-	if err != nil {
-		return fmt.Errorf("list s3 buckets: %w", err)
-	}
-
-	for _, bucket := range out.Buckets {
-		bucketName := aws.ToString(bucket.Name)
-		bucketID := c.nodeID("datastore", bucketName)
-
-		publicAccessBlock := "disabled"
-		if blockOut, err := client.GetPublicAccessBlock(ctx, &s3.GetPublicAccessBlockInput{
-			Bucket: bucket.Name,
-		}); err == nil && blockOut.PublicAccessBlockConfiguration != nil {
-			cfg := blockOut.PublicAccessBlockConfiguration
-			if cfg.BlockPublicAcls != nil && cfg.BlockPublicPolicy != nil &&
-				cfg.IgnorePublicAcls != nil && cfg.RestrictPublicBuckets != nil {
-				fullyBlocked := *cfg.BlockPublicAcls && *cfg.BlockPublicPolicy &&
-					*cfg.IgnorePublicAcls && *cfg.RestrictPublicBuckets
-				publicAccessBlock = s3PublicAccessBlock(true, fullyBlocked)
-			}
+func (c *Collector) collectS3(ctx context.Context, client s3API, batch *graph.Batch) error {
+	// MaxBuckets makes the first request paginated. An unpaginated ListBuckets
+	// call is rejected once the account quota is above 10,000 buckets.
+	paginator := s3.NewListBucketsPaginator(client, &s3.ListBucketsInput{
+		MaxBuckets: aws.Int32(1000),
+	})
+	for paginator.HasMorePages() {
+		out, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("list s3 buckets: %w", err)
 		}
 
-		publicAccess := false
-		if aclOut, err := client.GetBucketAcl(ctx, &s3.GetBucketAclInput{Bucket: bucket.Name}); err == nil {
-			publicAccess = s3ACLGrantsAnonymousRead(aclOut.Grants)
-		}
-		if !publicAccess {
-			if polOut, err := client.GetBucketPolicy(ctx, &s3.GetBucketPolicyInput{Bucket: bucket.Name}); err == nil {
-				grants, err := s3PolicyGrantsAnonymousRead(aws.ToString(polOut.Policy))
-				if err == nil && grants {
-					publicAccess = true
+		for _, bucket := range out.Buckets {
+			bucketName := aws.ToString(bucket.Name)
+			bucketID := c.globalNodeID("datastore", bucketName)
+
+			publicAccessBlock := "disabled"
+			if blockOut, err := client.GetPublicAccessBlock(ctx, &s3.GetPublicAccessBlockInput{
+				Bucket: bucket.Name,
+			}); err == nil && blockOut.PublicAccessBlockConfiguration != nil {
+				cfg := blockOut.PublicAccessBlockConfiguration
+				if cfg.BlockPublicAcls != nil && cfg.BlockPublicPolicy != nil &&
+					cfg.IgnorePublicAcls != nil && cfg.RestrictPublicBuckets != nil {
+					fullyBlocked := *cfg.BlockPublicAcls && *cfg.BlockPublicPolicy &&
+						*cfg.IgnorePublicAcls && *cfg.RestrictPublicBuckets
+					publicAccessBlock = s3PublicAccessBlock(true, fullyBlocked)
 				}
 			}
-		}
 
-		encryption := false
-		if encOut, err := client.GetBucketEncryption(ctx, &s3.GetBucketEncryptionInput{Bucket: bucket.Name}); err == nil {
-			encryption = s3EncryptionEnabled(encOut)
-		}
+			publicAccess := false
+			if aclOut, err := client.GetBucketAcl(ctx, &s3.GetBucketAclInput{Bucket: bucket.Name}); err == nil {
+				publicAccess = s3ACLGrantsAnonymousRead(aclOut.Grants)
+			}
+			if !publicAccess {
+				if polOut, err := client.GetBucketPolicy(ctx, &s3.GetBucketPolicyInput{Bucket: bucket.Name}); err == nil {
+					grants, err := s3PolicyGrantsAnonymousRead(aws.ToString(polOut.Policy))
+					if err == nil && grants {
+						publicAccess = true
+					}
+				}
+			}
 
-		versioning := false
-		if verOut, err := client.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{Bucket: bucket.Name}); err == nil {
-			versioning = s3VersioningEnabled(verOut)
-		}
+			encryption := false
+			if encOut, err := client.GetBucketEncryption(ctx, &s3.GetBucketEncryptionInput{Bucket: bucket.Name}); err == nil {
+				encryption = s3EncryptionEnabled(encOut)
+			}
 
-		batch.Nodes = append(batch.Nodes, graph.Node{
-			ID:        bucketID,
-			Type:      graph.NodeDatastore,
-			Name:      bucketName,
-			Provider:  "aws",
-			Region:    c.Region,
-			AccountID: c.AccountID,
-			Properties: graph.MustProperties(map[string]any{
-				"resource_id":         bucketName,
-				"service":             "s3",
-				"public_access":       publicAccess,
-				"public_access_block": publicAccessBlock,
-				"encryption":          encryption,
-				"versioning":          versioning,
-			}),
-		})
+			versioning := false
+			if verOut, err := client.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{Bucket: bucket.Name}); err == nil {
+				versioning = s3VersioningEnabled(verOut)
+			}
+
+			batch.Nodes = append(batch.Nodes, graph.Node{
+				ID:        bucketID,
+				Type:      graph.NodeDatastore,
+				Name:      bucketName,
+				Provider:  "aws",
+				AccountID: c.AccountID,
+				Properties: graph.MustProperties(map[string]any{
+					"resource_id":         bucketName,
+					"service":             "s3",
+					"public_access":       publicAccess,
+					"public_access_block": publicAccessBlock,
+					"encryption":          encryption,
+					"versioning":          versioning,
+				}),
+			})
+		}
 	}
 	return nil
 }
@@ -348,6 +382,12 @@ func ec2Platform(instance ec2types.Instance) string {
 
 func (c *Collector) nodeID(kind, resource string) string {
 	return fmt.Sprintf("aws:%s:%s:%s:%s", c.AccountID, c.Region, kind, resource)
+}
+
+// globalNodeID is the account-scoped id for IAM principals and S3 buckets.
+// A second regional scan updates these nodes instead of creating another copy.
+func (c *Collector) globalNodeID(kind, resource string) string {
+	return fmt.Sprintf("aws:%s:global:%s:%s", c.AccountID, kind, resource)
 }
 
 func (c *Collector) edgeID(source, target, edgeType string) string {

@@ -45,7 +45,7 @@ OpenSourceOM needs a minimal graph model to connect cloud inventory (workloads, 
 
 ### Node ID format
 
-Provider-scoped IDs: `aws:{account_id}:{region}:{kind}:{resource_id}`
+Provider-scoped IDs: `aws:{account_id}:{region}:{kind}:{resource_id}` for regional resources (EC2 instances and security groups). IAM principals and S3 buckets are account-global and use `global` in place of the region, so a scan in a second region updates the same nodes.
 
 Synthetic nodes use stable global IDs (e.g. `internet:global`).
 

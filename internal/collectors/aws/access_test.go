@@ -30,9 +30,9 @@ func TestLinkRoleS3Access(t *testing.T) {
 
 	c.ensureRoleNode(&batch, "AppRole", "arn:aws:iam::111122223333:role/AppRole")
 	addEdge(&batch, graph.Edge{
-		ID:       c.edgeID(webID, c.nodeID("identity", "AppRole"), graph.EdgeAssumes),
+		ID:       c.edgeID(webID, c.globalNodeID("identity", "AppRole"), graph.EdgeAssumes),
 		SourceID: webID,
-		TargetID: c.nodeID("identity", "AppRole"),
+		TargetID: c.globalNodeID("identity", "AppRole"),
 		Type:     graph.EdgeAssumes,
 		Properties: graph.MustProperties(map[string]any{
 			"instance_profile": "web-profile",
@@ -48,7 +48,7 @@ func TestLinkRoleS3Access(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	roleID := c.nodeID("identity", "AppRole")
+	roleID := c.globalNodeID("identity", "AppRole")
 	if !hasEdge(batch, webID, roleID, graph.EdgeAssumes) {
 		t.Fatal("missing ASSUMES edge from web-1 to AppRole")
 	}
@@ -76,7 +76,7 @@ func TestLinkRoleS3AccessStarMatchesEveryBucket(t *testing.T) {
 	if err := c.linkRoleS3Access(&batch, "AdminRole", docs); err != nil {
 		t.Fatal(err)
 	}
-	roleID := c.nodeID("identity", "AdminRole")
+	roleID := c.globalNodeID("identity", "AdminRole")
 	if !hasEdge(batch, roleID, c.nodeID("datastore", "logs"), graph.EdgeCanAccess) {
 		t.Fatal("expected access to logs")
 	}
