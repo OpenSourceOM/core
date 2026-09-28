@@ -21,12 +21,46 @@ func instanceIMDSv2Required(instance ec2types.Instance) bool {
 	return instance.MetadataOptions != nil && instance.MetadataOptions.HttpTokens == ec2types.HttpTokensStateRequired
 }
 
-func s3PublicAccessFlags(configured, fullyBlocked bool) (block string, public bool) {
+func s3PublicAccessBlock(configured, fullyBlocked bool) string {
 	if configured && fullyBlocked {
-		return "enabled", false
+		return "enabled"
 	}
-	return "disabled", true
+	return "disabled"
 }
+
+func instanceInternetReachable(instance ec2types.Instance, groups []ec2types.SecurityGroup) bool {
+	if !instanceHasPublicIP(instance) {
+		return false
+	}
+	for _, sg := range groups {
+		if securityGroupAllowsInternetIngress(sg) {
+			return true
+		}
+	}
+	return false
+}
+
+func s3ACLGrantsAnonymousRead(grants []s3types.Grant) bool {
+	for _, grant := range grants {
+		if grant.Grantee == nil {
+			continue
+		}
+		uri := aws.ToString(grant.Grantee.URI)
+		if uri != s3AllUsersURI && uri != s3AuthenticatedUsersURI {
+			continue
+		}
+		switch grant.Permission {
+		case s3types.PermissionRead, s3types.PermissionFullControl:
+			return true
+		}
+	}
+	return false
+}
+
+const (
+	s3AllUsersURI           = "http://acs.amazonaws.com/groups/global/AllUsers"
+	s3AuthenticatedUsersURI = "http://acs.amazonaws.com/groups/global/AuthenticatedUsers"
+)
 
 func s3EncryptionEnabled(out *s3.GetBucketEncryptionOutput) bool {
 	return out != nil && out.ServerSideEncryptionConfiguration != nil &&

@@ -63,13 +63,13 @@ func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
 	iamClient := iam.NewFromConfig(cfg)
 	s3Client := s3.NewFromConfig(cfg)
 
-	sgInternetFacing := map[string]bool{}
+	securityGroups := map[string]ec2types.SecurityGroup{}
 	var profiles []instanceProfileUse
 
-	if err := c.collectSecurityGroups(ctx, ec2Client, &batch, sgInternetFacing); err != nil {
+	if err := c.collectSecurityGroups(ctx, ec2Client, &batch, securityGroups); err != nil {
 		return graph.Batch{}, err
 	}
-	if err := c.collectEC2(ctx, ec2Client, &batch, sgInternetFacing, &profiles); err != nil {
+	if err := c.collectEC2(ctx, ec2Client, &batch, securityGroups, &profiles); err != nil {
 		return graph.Batch{}, err
 	}
 	if err := c.collectIAM(ctx, iamClient, &batch); err != nil {
@@ -85,7 +85,7 @@ func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
 	return batch, nil
 }
 
-func (c *Collector) collectSecurityGroups(ctx context.Context, client *ec2.Client, batch *graph.Batch, sgInternetFacing map[string]bool) error {
+func (c *Collector) collectSecurityGroups(ctx context.Context, client *ec2.Client, batch *graph.Batch, groups map[string]ec2types.SecurityGroup) error {
 	out, err := client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{})
 	if err != nil {
 		return fmt.Errorf("describe security groups: %w", err)
@@ -94,8 +94,7 @@ func (c *Collector) collectSecurityGroups(ctx context.Context, client *ec2.Clien
 	for _, sg := range out.SecurityGroups {
 		sgID := aws.ToString(sg.GroupId)
 		internetFacing := securityGroupAllowsInternetIngress(sg)
-
-		sgInternetFacing[sgID] = internetFacing
+		groups[sgID] = sg
 		batch.Nodes = append(batch.Nodes, graph.Node{
 			ID:        c.nodeID("network", sgID),
 			Type:      graph.NodeNetwork,
@@ -114,7 +113,7 @@ func (c *Collector) collectSecurityGroups(ctx context.Context, client *ec2.Clien
 	return nil
 }
 
-func (c *Collector) collectEC2(ctx context.Context, client *ec2.Client, batch *graph.Batch, sgInternetFacing map[string]bool, profiles *[]instanceProfileUse) error {
+func (c *Collector) collectEC2(ctx context.Context, client *ec2.Client, batch *graph.Batch, groups map[string]ec2types.SecurityGroup, profiles *[]instanceProfileUse) error {
 	out, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{})
 	if err != nil {
 		return fmt.Errorf("describe instances: %w", err)
@@ -156,6 +155,8 @@ func (c *Collector) collectEC2(ctx context.Context, client *ec2.Client, batch *g
 				}
 			}
 
+			var attached []ec2types.SecurityGroup
+			viaGroup := ""
 			for _, sgRef := range instance.SecurityGroups {
 				sgID := aws.ToString(sgRef.GroupId)
 				sgNodeID := c.nodeID("network", sgID)
@@ -165,18 +166,25 @@ func (c *Collector) collectEC2(ctx context.Context, client *ec2.Client, batch *g
 					TargetID: sgNodeID,
 					Type:     graph.EdgeAffects,
 				})
-
-				if sgInternetFacing[sgID] {
-					batch.Edges = append(batch.Edges, graph.Edge{
-						ID:       c.edgeID(graph.InternetNodeID, workloadID, graph.EdgeReachable),
-						SourceID: graph.InternetNodeID,
-						TargetID: workloadID,
-						Type:     graph.EdgeReachable,
-						Properties: graph.MustProperties(map[string]any{
-							"via_security_group": sgID,
-						}),
-					})
+				sg, ok := groups[sgID]
+				if !ok {
+					continue
 				}
+				attached = append(attached, sg)
+				if viaGroup == "" && securityGroupAllowsInternetIngress(sg) {
+					viaGroup = sgID
+				}
+			}
+			if instanceInternetReachable(instance, attached) {
+				batch.Edges = append(batch.Edges, graph.Edge{
+					ID:       c.edgeID(graph.InternetNodeID, workloadID, graph.EdgeReachable),
+					SourceID: graph.InternetNodeID,
+					TargetID: workloadID,
+					Type:     graph.EdgeReachable,
+					Properties: graph.MustProperties(map[string]any{
+						"via_security_group": viaGroup,
+					}),
+				})
 			}
 		}
 	}
@@ -272,7 +280,6 @@ func (c *Collector) collectS3(ctx context.Context, client *s3.Client, batch *gra
 		bucketName := aws.ToString(bucket.Name)
 		bucketID := c.nodeID("datastore", bucketName)
 
-		publicAccess := false
 		publicAccessBlock := "disabled"
 		if blockOut, err := client.GetPublicAccessBlock(ctx, &s3.GetPublicAccessBlockInput{
 			Bucket: bucket.Name,
@@ -282,10 +289,21 @@ func (c *Collector) collectS3(ctx context.Context, client *s3.Client, batch *gra
 				cfg.IgnorePublicAcls != nil && cfg.RestrictPublicBuckets != nil {
 				fullyBlocked := *cfg.BlockPublicAcls && *cfg.BlockPublicPolicy &&
 					*cfg.IgnorePublicAcls && *cfg.RestrictPublicBuckets
-				publicAccessBlock, publicAccess = s3PublicAccessFlags(true, fullyBlocked)
+				publicAccessBlock = s3PublicAccessBlock(true, fullyBlocked)
 			}
-		} else {
-			publicAccessBlock, publicAccess = s3PublicAccessFlags(false, false)
+		}
+
+		publicAccess := false
+		if aclOut, err := client.GetBucketAcl(ctx, &s3.GetBucketAclInput{Bucket: bucket.Name}); err == nil {
+			publicAccess = s3ACLGrantsAnonymousRead(aclOut.Grants)
+		}
+		if !publicAccess {
+			if polOut, err := client.GetBucketPolicy(ctx, &s3.GetBucketPolicyInput{Bucket: bucket.Name}); err == nil {
+				grants, err := s3PolicyGrantsAnonymousRead(aws.ToString(polOut.Policy))
+				if err == nil && grants {
+					publicAccess = true
+				}
+			}
 		}
 
 		encryption := false
@@ -347,9 +365,6 @@ func instanceName(instance ec2types.Instance) string {
 
 func securityGroupAllowsInternetIngress(sg ec2types.SecurityGroup) bool {
 	for _, perm := range sg.IpPermissions {
-		if !permissionAllowsAllIPv4(perm) {
-			continue
-		}
 		for _, ipRange := range perm.IpRanges {
 			if aws.ToString(ipRange.CidrIp) == "0.0.0.0/0" {
 				return true
@@ -360,22 +375,6 @@ func securityGroupAllowsInternetIngress(sg ec2types.SecurityGroup) bool {
 				return true
 			}
 		}
-	}
-	return false
-}
-
-func permissionAllowsAllIPv4(perm ec2types.IpPermission) bool {
-	from := aws.ToInt32(perm.FromPort)
-	to := aws.ToInt32(perm.ToPort)
-	if perm.IpProtocol == nil {
-		return false
-	}
-	proto := strings.ToLower(aws.ToString(perm.IpProtocol))
-	if proto == "-1" {
-		return true
-	}
-	if proto == "tcp" && from <= 443 && to >= 443 {
-		return true
 	}
 	return false
 }

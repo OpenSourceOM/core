@@ -72,15 +72,18 @@ func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
 			}),
 		})
 
-		if err := c.collectPods(ctx, client, ns, nsID, &batch); err != nil {
+		pods, err := c.collectPods(ctx, client, ns, nsID, &batch)
+		if err != nil {
 			return graph.Batch{}, err
 		}
 		if err := c.collectServiceAccounts(ctx, client, ns, &batch); err != nil {
 			return graph.Batch{}, err
 		}
-		if err := c.collectServices(ctx, client, ns, &batch); err != nil {
+		services, err := c.collectServices(ctx, client, ns, &batch)
+		if err != nil {
 			return graph.Batch{}, err
 		}
+		c.linkServicesToPods(&batch, pods, services)
 	}
 
 	return batch, nil
@@ -101,11 +104,12 @@ func (c *Collector) listNamespaces(ctx context.Context, client *kubernetes.Clien
 	return namespaces, nil
 }
 
-func (c *Collector) collectPods(ctx context.Context, client *kubernetes.Clientset, namespace, nsID string, batch *graph.Batch) error {
+func (c *Collector) collectPods(ctx context.Context, client *kubernetes.Clientset, namespace, nsID string, batch *graph.Batch) ([]collectedPod, error) {
 	out, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return fmt.Errorf("list pods in %s: %w", namespace, err)
+		return nil, fmt.Errorf("list pods in %s: %w", namespace, err)
 	}
+	pods := make([]collectedPod, 0, len(out.Items))
 	for _, pod := range out.Items {
 		workloadID := c.nodeID("workload", namespace+"/"+pod.Name)
 		batch.Nodes = append(batch.Nodes, graph.Node{
@@ -138,20 +142,9 @@ func (c *Collector) collectPods(ctx context.Context, client *kubernetes.Clientse
 			TargetID: workloadID,
 			Type:     graph.EdgeAssumes,
 		})
-
-		if pod.Status.PodIP != "" && isLikelyPublicService(pod.Labels) {
-			batch.Edges = append(batch.Edges, graph.Edge{
-				ID:       c.edgeID(graph.InternetNodeID, workloadID, graph.EdgeReachable),
-				SourceID: graph.InternetNodeID,
-				TargetID: workloadID,
-				Type:     graph.EdgeReachable,
-				Properties: graph.MustProperties(map[string]any{
-					"via": "LoadBalancer/Ingress heuristic",
-				}),
-			})
-		}
+		pods = append(pods, collectedPod{id: workloadID, labels: pod.Labels})
 	}
-	return nil
+	return pods, nil
 }
 
 func (c *Collector) collectServiceAccounts(ctx context.Context, client *kubernetes.Clientset, namespace string, batch *graph.Batch) error {
@@ -175,14 +168,15 @@ func (c *Collector) collectServiceAccounts(ctx context.Context, client *kubernet
 	return nil
 }
 
-func (c *Collector) collectServices(ctx context.Context, client *kubernetes.Clientset, namespace string, batch *graph.Batch) error {
+func (c *Collector) collectServices(ctx context.Context, client *kubernetes.Clientset, namespace string, batch *graph.Batch) ([]collectedService, error) {
 	out, err := client.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return fmt.Errorf("list services in %s: %w", namespace, err)
+		return nil, fmt.Errorf("list services in %s: %w", namespace, err)
 	}
+	services := make([]collectedService, 0, len(out.Items))
 	for _, svc := range out.Items {
 		netID := c.nodeID("network", namespace+"/service/"+svc.Name)
-		public := svc.Spec.Type == "LoadBalancer" || svc.Spec.Type == "NodePort"
+		public := serviceExposesInternet(string(svc.Spec.Type))
 		batch.Nodes = append(batch.Nodes, graph.Node{
 			ID:        netID,
 			Type:      graph.NodeNetwork,
@@ -190,13 +184,19 @@ func (c *Collector) collectServices(ctx context.Context, client *kubernetes.Clie
 			Provider:  "kubernetes",
 			AccountID: c.Cluster,
 			Properties: graph.MustProperties(map[string]any{
-				"namespace":        namespace,
-				"service_type":       string(svc.Spec.Type),
+				"namespace":       namespace,
+				"service_type":    string(svc.Spec.Type),
 				"internet_facing": public,
 			}),
 		})
+		services = append(services, collectedService{
+			id:       netID,
+			name:     svc.Name,
+			selector: svc.Spec.Selector,
+			public:   public,
+		})
 	}
-	return nil
+	return services, nil
 }
 
 func (c *Collector) loadConfig() (*rest.Config, error) {
@@ -214,16 +214,4 @@ func (c *Collector) nodeID(kind, resource string) string {
 
 func (c *Collector) edgeID(source, target, edgeType string) string {
 	return fmt.Sprintf("%s|%s|%s", source, target, edgeType)
-}
-
-func isLikelyPublicService(labels map[string]string) bool {
-	if labels == nil {
-		return false
-	}
-	for key := range labels {
-		if key == "app.kubernetes.io/name" {
-			return true
-		}
-	}
-	return false
 }
