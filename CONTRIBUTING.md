@@ -12,7 +12,7 @@ Thank you for helping build open cloud security tooling.
 1. Fork and clone the repo
 2. Copy `.env.example` to `.env`
 3. Run `docker compose up -d` for local Postgres
-4. Pick an item from [docs/ROADMAP.md](./docs/ROADMAP.md) or open a discussion
+4. Pick an [open issue](https://github.com/OpenSourceOM/core/issues) or an item from [docs/ROADMAP.md](./docs/ROADMAP.md). For a change that is not tracked yet, open a [discussion](https://github.com/OpenSourceOM/core/discussions) with the `roadmap` label.
 
 ## Pull request reviews
 

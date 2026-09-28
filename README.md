@@ -21,7 +21,7 @@ OpenSourceOM Core is the platform behind [opensourceom.org](https://opensourceom
 
 Traditional scanners flood you with CVEs and misconfigurations. OpenSourceOM connects the dots — showing which findings sit on paths from the internet to your sensitive data and privileged identities.
 
-> **Status:** Early development (Phase 3). CSPM rules, identity blast radius, Kubernetes ingest, exports, and a collector plugin SDK are available. See the [roadmap](./docs/ROADMAP.md).
+> **Status:** Early development (Phase 3). CSPM rules, identity blast radius, Kubernetes ingest, exports, a collector plugin SDK, and a Helm chart are available. Current work is graph accuracy, operability, rule packs, and cloud audit ingest. See the [roadmap](./docs/ROADMAP.md).
 
 ## Why this exists
 
@@ -154,7 +154,7 @@ Full documentation: [opensourceom.org](https://opensourceom.org) (docs at [opens
 | **0** | Graph schema v0, AWS collector, ingest API, `om` CLI |
 | **1** | Attack path queries, CVE enrichment, web UI, Azure/GCP collectors |
 | **2** | CSPM rules, blast radius, K8s connector, exports |
-| **3** *(now)* | Plugin SDK, Helm chart, community rule packs |
+| **3** *(now)* | Graph accuracy, inventory-backed CVEs, self-hosted operability, rule packs, cloud audit ingest |
 
 Details: [docs/ROADMAP.md](./docs/ROADMAP.md)
 
@@ -163,7 +163,7 @@ Details: [docs/ROADMAP.md](./docs/ROADMAP.md)
 We welcome issues, discussions, and PRs.
 
 1. Read the [roadmap](./docs/ROADMAP.md) and [architecture](./docs/ARCHITECTURE.md)
-2. Open a [discussion](https://github.com/OpenSourceOM/core/discussions) before large changes
+2. Comment on an [open issue](https://github.com/OpenSourceOM/core/issues), or open a [discussion](https://github.com/OpenSourceOM/core/discussions) with the `roadmap` label before a large change that is not tracked yet
 3. Keep collectors **read-only** toward cloud accounts by default
 4. See [CONTRIBUTING.md](./CONTRIBUTING.md) — PRs get an automatic [CodeRabbit](https://docs.coderabbit.ai/) review once the GitHub App is installed on this repo
 
