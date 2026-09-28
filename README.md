@@ -138,11 +138,11 @@ For local CLI-only use without Docker API, run `docker compose up -d postgres` a
 **Kubernetes:**
 
 ```bash
-docker build -t ghcr.io/opensourceom/core:0.1.0 .
+docker build -t ghcr.io/opensourceom/core:0.2.0 .
 helm install om deploy/helm/opensourceom \
   --set api.secret='change-me' \
   --set postgres.password='change-me' \
-  --set image.tag=0.1.0
+  --set image.tag=0.2.0
 ```
 
 Full documentation: [opensourceom.org](https://opensourceom.org) (docs at [opensourceom.org/docs](https://opensourceom.org/docs/))
