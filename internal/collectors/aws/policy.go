@@ -11,6 +11,75 @@ import (
 	"strings"
 )
 
+// administratorAccessDocument is the AWS-managed AdministratorAccess policy.
+// Attaching that policy is full admin, so the collector uses this document
+// instead of calling GetPolicy.
+const administratorAccessDocument = `{"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"*","Resource":"*"}}`
+
+// policyGrantsAdmin reports whether an identity policy allows every action on
+// every resource. Deny statements and conditions are not evaluated.
+func policyGrantsAdmin(document string) (bool, error) {
+	var doc policyDocument
+	if err := json.Unmarshal([]byte(document), &doc); err != nil {
+		return false, fmt.Errorf("parse policy: %w", err)
+	}
+	for _, stmt := range doc.Statement {
+		if !strings.EqualFold(stmt.Effect, "Allow") {
+			continue
+		}
+		if len(stmt.NotAction) > 0 || len(stmt.NotResource) > 0 || hasPolicyCondition(stmt.Condition) {
+			continue
+		}
+		if actionsGrantAll(stmt.Action) && resourcesGrantAll(stmt.Resource) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func documentsGrantAdmin(docs []string) (bool, error) {
+	for _, doc := range docs {
+		ok, err := policyGrantsAdmin(doc)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// isAdministratorAccessPolicy reports whether arn is the AWS-managed
+// AdministratorAccess policy in any partition.
+func isAdministratorAccessPolicy(arn string) bool {
+	const suffix = ":iam::aws:policy/AdministratorAccess"
+	if !strings.HasPrefix(arn, "arn:") || !strings.HasSuffix(arn, suffix) {
+		return false
+	}
+	partition := strings.TrimSuffix(strings.TrimPrefix(arn, "arn:"), suffix)
+	return partition != "" && !strings.Contains(partition, ":")
+}
+
+func actionsGrantAll(actions []string) bool {
+	for _, action := range actions {
+		switch strings.TrimSpace(action) {
+		case "*", "*:*":
+			return true
+		}
+	}
+	return false
+}
+
+func resourcesGrantAll(resources []string) bool {
+	for _, resource := range resources {
+		if strings.TrimSpace(resource) == "*" {
+			return true
+		}
+	}
+	return false
+}
+
 // policyGrantsS3Bucket reports whether an identity policy allows any s3 action
 // on bucket. Deny statements and conditions are not evaluated.
 func policyGrantsS3Bucket(document, bucket string) (bool, error) {
@@ -125,11 +194,12 @@ func (s *statementList) UnmarshalJSON(data []byte) error {
 }
 
 type policyStatement struct {
-	Effect      string       `json:"Effect"`
-	Action      stringOrList `json:"Action"`
-	NotAction   stringOrList `json:"NotAction"`
-	Resource    stringOrList `json:"Resource"`
-	NotResource stringOrList `json:"NotResource"`
+	Effect      string          `json:"Effect"`
+	Action      stringOrList    `json:"Action"`
+	NotAction   stringOrList    `json:"NotAction"`
+	Resource    stringOrList    `json:"Resource"`
+	NotResource stringOrList    `json:"NotResource"`
+	Condition   json.RawMessage `json:"Condition"`
 }
 
 type stringOrList []string

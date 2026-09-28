@@ -63,7 +63,7 @@ Synthetic nodes use stable global IDs (e.g. `internet:global`).
 - **Simple to operate:** Single Postgres instance, no graph DB dependency in Phase 0.
 - **Extensible:** New node/edge types and properties can be added without breaking existing rows.
 - **Limitations:** Recursive path queries are SQL-based and capped (depth 6); not suitable for very large graphs without indexing and query optimization in later phases.
-- **Heuristics:** Phase 0 AWS collector uses heuristics (e.g. admin role name matching, admin→public S3 edges) that will be replaced with policy-aware analysis in Phase 1+.
+- **Heuristics:** AWS `admin_access` follows attached and inline policies: an allow of `*` on `*`, or the AWS-managed `AdministratorAccess` policy. Deny statements, conditions, permission boundaries, and group policies are not evaluated. Azure and GCP admin detection remains a heuristic.
 
 ## References
 

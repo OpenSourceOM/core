@@ -6,7 +6,6 @@ package aws
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/OpenSourceOM/core/internal/graph"
@@ -95,13 +94,21 @@ type s3API interface {
 	GetBucketVersioning(context.Context, *s3.GetBucketVersioningInput, ...func(*s3.Options)) (*s3.GetBucketVersioningOutput, error)
 }
 
-// iamAPI is the IAM operations used to list roles and users.
+// iamAPI is the IAM operations used to list roles, users, and their policies.
 type iamAPI interface {
 	ListRoles(context.Context, *iam.ListRolesInput, ...func(*iam.Options)) (*iam.ListRolesOutput, error)
 	ListUsers(context.Context, *iam.ListUsersInput, ...func(*iam.Options)) (*iam.ListUsersOutput, error)
 	ListMFADevices(context.Context, *iam.ListMFADevicesInput, ...func(*iam.Options)) (*iam.ListMFADevicesOutput, error)
 	ListAccessKeys(context.Context, *iam.ListAccessKeysInput, ...func(*iam.Options)) (*iam.ListAccessKeysOutput, error)
 	GetAccessKeyLastUsed(context.Context, *iam.GetAccessKeyLastUsedInput, ...func(*iam.Options)) (*iam.GetAccessKeyLastUsedOutput, error)
+	ListAttachedRolePolicies(context.Context, *iam.ListAttachedRolePoliciesInput, ...func(*iam.Options)) (*iam.ListAttachedRolePoliciesOutput, error)
+	ListRolePolicies(context.Context, *iam.ListRolePoliciesInput, ...func(*iam.Options)) (*iam.ListRolePoliciesOutput, error)
+	GetRolePolicy(context.Context, *iam.GetRolePolicyInput, ...func(*iam.Options)) (*iam.GetRolePolicyOutput, error)
+	ListAttachedUserPolicies(context.Context, *iam.ListAttachedUserPoliciesInput, ...func(*iam.Options)) (*iam.ListAttachedUserPoliciesOutput, error)
+	ListUserPolicies(context.Context, *iam.ListUserPoliciesInput, ...func(*iam.Options)) (*iam.ListUserPoliciesOutput, error)
+	GetUserPolicy(context.Context, *iam.GetUserPolicyInput, ...func(*iam.Options)) (*iam.GetUserPolicyOutput, error)
+	GetPolicy(context.Context, *iam.GetPolicyInput, ...func(*iam.Options)) (*iam.GetPolicyOutput, error)
+	GetPolicyVersion(context.Context, *iam.GetPolicyVersionInput, ...func(*iam.Options)) (*iam.GetPolicyVersionOutput, error)
 }
 
 var (
@@ -231,7 +238,10 @@ func (c *Collector) collectIAM(ctx context.Context, client iamAPI, batch *graph.
 		for _, role := range page.Roles {
 			roleName := aws.ToString(role.RoleName)
 			roleID := c.globalNodeID("identity", roleName)
-			adminAccess := roleLooksAdministrative(roleName, aws.ToString(role.Arn))
+			adminAccess, err := c.principalAdmin(ctx, client, "role", roleName)
+			if err != nil {
+				return err
+			}
 
 			batch.Nodes = append(batch.Nodes, graph.Node{
 				ID:        roleID,
@@ -260,7 +270,10 @@ func (c *Collector) collectIAMUsers(ctx context.Context, client iamAPI, batch *g
 		for _, user := range page.Users {
 			userName := aws.ToString(user.UserName)
 			userID := c.globalNodeID("identity", "user/"+userName)
-			adminAccess := roleLooksAdministrative(userName, aws.ToString(user.Arn))
+			adminAccess, err := c.principalAdmin(ctx, client, "user", userName)
+			if err != nil {
+				return err
+			}
 
 			mfa := false
 			if mfaOut, err := client.ListMFADevices(ctx, &iam.ListMFADevicesInput{UserName: user.UserName}); err == nil {
@@ -419,13 +432,23 @@ func securityGroupAllowsInternetIngress(sg ec2types.SecurityGroup) bool {
 	return false
 }
 
-func roleLooksAdministrative(name, arn string) bool {
-	lower := strings.ToLower(name + " " + arn)
-	keywords := []string{"admin", "poweruser", "fullaccess", "organizationaccountaccessrole"}
-	for _, kw := range keywords {
-		if strings.Contains(lower, kw) {
-			return true
-		}
+// principalAdmin reports whether an IAM user or role has full admin from an
+// attached or inline policy. Group policies are not included.
+func (c *Collector) principalAdmin(ctx context.Context, client iamAPI, kind, name string) (bool, error) {
+	var (
+		docs []string
+		err  error
+	)
+	switch kind {
+	case "role":
+		docs, err = c.rolePolicyDocuments(ctx, client, name)
+	case "user":
+		docs, err = c.userPolicyDocuments(ctx, client, name)
+	default:
+		return false, fmt.Errorf("unknown principal kind %q", kind)
 	}
-	return false
+	if err != nil {
+		return false, err
+	}
+	return documentsGrantAdmin(docs)
 }
