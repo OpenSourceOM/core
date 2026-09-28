@@ -43,9 +43,9 @@ func (c *Collector) linkInstanceProfileAccess(ctx context.Context, client *iam.C
 		for _, role := range roles {
 			c.ensureRoleNode(batch, role.name, role.arn)
 			addEdge(batch, graph.Edge{
-				ID:       c.edgeID(use.workloadID, c.nodeID("identity", role.name), graph.EdgeAssumes),
+				ID:       c.edgeID(use.workloadID, c.globalNodeID("identity", role.name), graph.EdgeAssumes),
 				SourceID: use.workloadID,
-				TargetID: c.nodeID("identity", role.name),
+				TargetID: c.globalNodeID("identity", role.name),
 				Type:     graph.EdgeAssumes,
 				Properties: graph.MustProperties(map[string]any{
 					"instance_profile": profileName,
@@ -179,7 +179,7 @@ func (c *Collector) managedPolicyDocument(ctx context.Context, client *iam.Clien
 }
 
 func (c *Collector) ensureRoleNode(batch *graph.Batch, roleName, roleARN string) {
-	id := c.nodeID("identity", roleName)
+	id := c.globalNodeID("identity", roleName)
 	for _, node := range batch.Nodes {
 		if node.ID == id {
 			return
@@ -190,7 +190,6 @@ func (c *Collector) ensureRoleNode(batch *graph.Batch, roleName, roleARN string)
 		Type:      graph.NodeIdentity,
 		Name:      roleName,
 		Provider:  "aws",
-		Region:    c.Region,
 		AccountID: c.AccountID,
 		Properties: graph.MustProperties(map[string]any{
 			"arn":            roleARN,
@@ -201,7 +200,7 @@ func (c *Collector) ensureRoleNode(batch *graph.Batch, roleName, roleARN string)
 }
 
 func (c *Collector) linkRoleS3Access(batch *graph.Batch, roleName string, docs []string) error {
-	roleID := c.nodeID("identity", roleName)
+	roleID := c.globalNodeID("identity", roleName)
 	for _, node := range batch.Nodes {
 		bucket, ok := s3BucketName(node)
 		if !ok {
