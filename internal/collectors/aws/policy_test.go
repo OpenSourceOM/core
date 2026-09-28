@@ -93,6 +93,85 @@ func TestPolicyGrantsS3Bucket(t *testing.T) {
 	}
 }
 
+func TestPolicyGrantsAdmin(t *testing.T) {
+	tests := []struct {
+		name string
+		doc  string
+		want bool
+	}{
+		{
+			name: "star on star",
+			doc:  `{"Statement":{"Effect":"Allow","Action":"*","Resource":"*"}}`,
+			want: true,
+		},
+		{
+			name: "star colon star",
+			doc:  `{"Statement":{"Effect":"Allow","Action":"*:*","Resource":["*"]}}`,
+			want: true,
+		},
+		{
+			name: "star among other actions",
+			doc:  `{"Statement":{"Effect":"Allow","Action":["s3:*","*"],"Resource":"*"}}`,
+			want: true,
+		},
+		{
+			name: "iam star is not full admin",
+			doc:  `{"Statement":{"Effect":"Allow","Action":"iam:*","Resource":"*"}}`,
+			want: false,
+		},
+		{
+			name: "star on one bucket",
+			doc:  `{"Statement":{"Effect":"Allow","Action":"*","Resource":"arn:aws:s3:::logs"}}`,
+			want: false,
+		},
+		{
+			name: "not action is not full admin",
+			doc:  `{"Statement":{"Effect":"Allow","NotAction":"iam:*","Resource":"*"}}`,
+			want: false,
+		},
+		{
+			name: "condition is not full admin",
+			doc:  `{"Statement":{"Effect":"Allow","Action":"*","Resource":"*","Condition":{"Bool":{"aws:MultiFactorAuthPresent":"true"}}}}`,
+			want: false,
+		},
+		{
+			name: "deny is ignored",
+			doc:  `{"Statement":{"Effect":"Deny","Action":"*","Resource":"*"}}`,
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := policyGrantsAdmin(tt.doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Fatalf("policyGrantsAdmin() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsAdministratorAccessPolicy(t *testing.T) {
+	tests := []struct {
+		arn  string
+		want bool
+	}{
+		{"arn:aws:iam::aws:policy/AdministratorAccess", true},
+		{"arn:aws-us-gov:iam::aws:policy/AdministratorAccess", true},
+		{"arn:aws-cn:iam::aws:policy/AdministratorAccess", true},
+		{"arn:aws:iam::111122223333:policy/AdministratorAccess", false},
+		{"arn:aws:iam::aws:policy/ReadOnlyAccess", false},
+		{"arn:aws:iam::aws:policy/job-function/AdministratorAccess", false},
+	}
+	for _, tt := range tests {
+		if got := isAdministratorAccessPolicy(tt.arn); got != tt.want {
+			t.Errorf("isAdministratorAccessPolicy(%q) = %v, want %v", tt.arn, got, tt.want)
+		}
+	}
+}
+
 func TestPolicyGrantsS3BucketRejectsInvalidJSON(t *testing.T) {
 	if _, err := policyGrantsS3Bucket(`{"Statement":`, "logs"); err == nil {
 		t.Fatal("expected parse error")

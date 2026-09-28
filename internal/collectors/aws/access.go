@@ -64,6 +64,11 @@ func (c *Collector) linkInstanceProfileAccess(ctx context.Context, client *iam.C
 	}
 
 	for roleName, docs := range docsByRole {
+		admin, err := documentsGrantAdmin(docs)
+		if err != nil {
+			return fmt.Errorf("admin access for role %s: %w", roleName, err)
+		}
+		c.setAdminAccess(batch, roleName, admin)
 		if err := c.linkRoleS3Access(batch, roleName, docs); err != nil {
 			return err
 		}
@@ -104,7 +109,7 @@ func (c *Collector) instanceProfileRoles(ctx context.Context, client *iam.Client
 	return roles, nil
 }
 
-func (c *Collector) rolePolicyDocuments(ctx context.Context, client *iam.Client, roleName string) ([]string, error) {
+func (c *Collector) rolePolicyDocuments(ctx context.Context, client iamAPI, roleName string) ([]string, error) {
 	var docs []string
 
 	attached := iam.NewListAttachedRolePoliciesPaginator(client, &iam.ListAttachedRolePoliciesInput{
@@ -116,11 +121,10 @@ func (c *Collector) rolePolicyDocuments(ctx context.Context, client *iam.Client,
 			return nil, fmt.Errorf("list attached policies for %s: %w", roleName, err)
 		}
 		for _, policy := range page.AttachedPolicies {
-			doc, err := c.managedPolicyDocument(ctx, client, aws.ToString(policy.PolicyArn))
+			docs, err = c.appendManagedPolicy(ctx, client, docs, aws.ToString(policy.PolicyArn))
 			if err != nil {
 				return nil, err
 			}
-			docs = append(docs, doc)
 		}
 	}
 
@@ -150,7 +154,66 @@ func (c *Collector) rolePolicyDocuments(ctx context.Context, client *iam.Client,
 	return docs, nil
 }
 
-func (c *Collector) managedPolicyDocument(ctx context.Context, client *iam.Client, policyARN string) (string, error) {
+func (c *Collector) userPolicyDocuments(ctx context.Context, client iamAPI, userName string) ([]string, error) {
+	var docs []string
+
+	attached := iam.NewListAttachedUserPoliciesPaginator(client, &iam.ListAttachedUserPoliciesInput{
+		UserName: aws.String(userName),
+	})
+	for attached.HasMorePages() {
+		page, err := attached.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list attached policies for user %s: %w", userName, err)
+		}
+		for _, policy := range page.AttachedPolicies {
+			docs, err = c.appendManagedPolicy(ctx, client, docs, aws.ToString(policy.PolicyArn))
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	inline := iam.NewListUserPoliciesPaginator(client, &iam.ListUserPoliciesInput{
+		UserName: aws.String(userName),
+	})
+	for inline.HasMorePages() {
+		page, err := inline.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list inline policies for user %s: %w", userName, err)
+		}
+		for _, policyName := range page.PolicyNames {
+			out, err := client.GetUserPolicy(ctx, &iam.GetUserPolicyInput{
+				UserName:   aws.String(userName),
+				PolicyName: aws.String(policyName),
+			})
+			if err != nil {
+				return nil, fmt.Errorf("get inline policy %s on user %s: %w", policyName, userName, err)
+			}
+			doc, err := decodePolicyDocument(aws.ToString(out.PolicyDocument))
+			if err != nil {
+				return nil, fmt.Errorf("inline policy %s on user %s: %w", policyName, userName, err)
+			}
+			docs = append(docs, doc)
+		}
+	}
+	return docs, nil
+}
+
+func (c *Collector) appendManagedPolicy(ctx context.Context, client iamAPI, docs []string, policyARN string) ([]string, error) {
+	if policyARN == "" {
+		return nil, fmt.Errorf("attached policy is missing an ARN")
+	}
+	if isAdministratorAccessPolicy(policyARN) {
+		return append(docs, administratorAccessDocument), nil
+	}
+	doc, err := c.managedPolicyDocument(ctx, client, policyARN)
+	if err != nil {
+		return nil, err
+	}
+	return append(docs, doc), nil
+}
+
+func (c *Collector) managedPolicyDocument(ctx context.Context, client iamAPI, policyARN string) (string, error) {
 	if policyARN == "" {
 		return "", fmt.Errorf("attached policy is missing an ARN")
 	}
@@ -194,9 +257,23 @@ func (c *Collector) ensureRoleNode(batch *graph.Batch, roleName, roleARN string)
 		Properties: graph.MustProperties(map[string]any{
 			"arn":            roleARN,
 			"principal_type": "role",
-			"admin_access":   roleLooksAdministrative(roleName, roleARN),
+			"admin_access":   false,
 		}),
 	})
+}
+
+func (c *Collector) setAdminAccess(batch *graph.Batch, roleName string, admin bool) {
+	id := c.globalNodeID("identity", roleName)
+	for i := range batch.Nodes {
+		if batch.Nodes[i].ID != id {
+			continue
+		}
+		if batch.Nodes[i].Properties == nil {
+			batch.Nodes[i].Properties = map[string]any{}
+		}
+		batch.Nodes[i].Properties["admin_access"] = admin
+		return
+	}
 }
 
 func (c *Collector) linkRoleS3Access(batch *graph.Batch, roleName string, docs []string) error {

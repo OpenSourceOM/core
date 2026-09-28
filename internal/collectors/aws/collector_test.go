@@ -260,24 +260,206 @@ func (f *fakeS3) GetBucketVersioning(context.Context, *s3.GetBucketVersioningInp
 	return nil, errors.New("not configured")
 }
 
-type fakeIAM struct{}
+func TestAdminAccessFollowsPolicies(t *testing.T) {
+	c := &Collector{Region: "us-east-1", AccountID: "111122223333"}
+	const (
+		administratorAccess = "arn:aws:iam::aws:policy/AdministratorAccess"
+		readOnly            = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+		readOnlyDoc         = `{"Statement":{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}}`
+		starDoc             = `{"Statement":{"Effect":"Allow","Action":"*","Resource":"*"}}`
+	)
+	client := &fakeIAM{
+		roles: []iamtypes.Role{
+			{RoleName: aws.String("Admin"), Arn: aws.String("arn:aws:iam::111122223333:role/Admin")},
+			{RoleName: aws.String("app"), Arn: aws.String("arn:aws:iam::111122223333:role/app")},
+			{RoleName: aws.String("worker"), Arn: aws.String("arn:aws:iam::111122223333:role/worker")},
+		},
+		users: []iamtypes.User{
+			{UserName: aws.String("Admin"), Arn: aws.String("arn:aws:iam::111122223333:user/Admin")},
+			{UserName: aws.String("ops"), Arn: aws.String("arn:aws:iam::111122223333:user/ops")},
+			{UserName: aws.String("breakglass"), Arn: aws.String("arn:aws:iam::111122223333:user/breakglass")},
+		},
+		attachedRoles: map[string][]iamtypes.AttachedPolicy{
+			"Admin": {{
+				PolicyName: aws.String("ReadOnlyAccess"),
+				PolicyArn:  aws.String(readOnly),
+			}},
+			"app": {{
+				PolicyName: aws.String("AdministratorAccess"),
+				PolicyArn:  aws.String(administratorAccess),
+			}},
+		},
+		inlineRoles: map[string]map[string]string{
+			"worker": {"full": starDoc},
+		},
+		attachedUsers: map[string][]iamtypes.AttachedPolicy{
+			"ops": {{
+				PolicyName: aws.String("AdministratorAccess"),
+				PolicyArn:  aws.String(administratorAccess),
+			}},
+		},
+		inlineUsers: map[string]map[string]string{
+			"breakglass": {"full": starDoc},
+		},
+		managedDocs: map[string]string{
+			readOnly: readOnlyDoc,
+		},
+	}
+
+	var batch graph.Batch
+	if err := c.collectIAM(context.Background(), client, &batch); err != nil {
+		t.Fatal(err)
+	}
+
+	assertAdmin := func(id string, want bool) {
+		t.Helper()
+		node, ok := nodeByID(batch, id)
+		if !ok {
+			t.Fatalf("missing node %s", id)
+		}
+		got, _ := node.Properties["admin_access"].(bool)
+		if got != want {
+			t.Fatalf("%s admin_access = %v, want %v", node.Name, got, want)
+		}
+	}
+	assertAdmin(c.globalNodeID("identity", "Admin"), false)
+	assertAdmin(c.globalNodeID("identity", "app"), true)
+	assertAdmin(c.globalNodeID("identity", "worker"), true)
+	assertAdmin(c.globalNodeID("identity", "user/Admin"), false)
+	assertAdmin(c.globalNodeID("identity", "user/ops"), true)
+	assertAdmin(c.globalNodeID("identity", "user/breakglass"), true)
+	for _, arn := range client.fetchedPolicies {
+		if arn == administratorAccess {
+			t.Fatal("AdministratorAccess should count without GetPolicy")
+		}
+	}
+	if len(client.fetchedPolicies) != 1 || client.fetchedPolicies[0] != readOnly {
+		t.Fatalf("fetched policies = %v, want only ReadOnlyAccess", client.fetchedPolicies)
+	}
+}
+
+func TestAdminAccessLookupError(t *testing.T) {
+	c := &Collector{Region: "us-east-1", AccountID: "111122223333"}
+	client := &fakeIAM{
+		roles: []iamtypes.Role{{
+			RoleName: aws.String("app"),
+			Arn:      aws.String("arn:aws:iam::111122223333:role/app"),
+		}},
+		users:     []iamtypes.User{},
+		policyErr: errors.New("access denied"),
+	}
+	var batch graph.Batch
+	if err := c.collectIAM(context.Background(), client, &batch); err == nil {
+		t.Fatal("expected policy lookup error")
+	}
+}
+
+type fakeIAM struct {
+	roles           []iamtypes.Role
+	users           []iamtypes.User
+	attachedRoles   map[string][]iamtypes.AttachedPolicy
+	inlineRoles     map[string]map[string]string
+	attachedUsers   map[string][]iamtypes.AttachedPolicy
+	inlineUsers     map[string]map[string]string
+	managedDocs     map[string]string
+	fetchedPolicies []string
+	policyErr       error
+}
 
 func (f *fakeIAM) ListRoles(context.Context, *iam.ListRolesInput, ...func(*iam.Options)) (*iam.ListRolesOutput, error) {
-	return &iam.ListRolesOutput{
-		Roles: []iamtypes.Role{{
+	roles := f.roles
+	if roles == nil {
+		roles = []iamtypes.Role{{
 			RoleName: aws.String("AdminRole"),
 			Arn:      aws.String("arn:aws:iam::111122223333:role/AdminRole"),
-		}},
-	}, nil
+		}}
+	}
+	return &iam.ListRolesOutput{Roles: roles}, nil
 }
 
 func (f *fakeIAM) ListUsers(context.Context, *iam.ListUsersInput, ...func(*iam.Options)) (*iam.ListUsersOutput, error) {
-	return &iam.ListUsersOutput{
-		Users: []iamtypes.User{{
+	users := f.users
+	if users == nil {
+		users = []iamtypes.User{{
 			UserName: aws.String("alice"),
 			Arn:      aws.String("arn:aws:iam::111122223333:user/alice"),
-		}},
+		}}
+	}
+	return &iam.ListUsersOutput{Users: users}, nil
+}
+
+func (f *fakeIAM) ListAttachedRolePolicies(_ context.Context, params *iam.ListAttachedRolePoliciesInput, _ ...func(*iam.Options)) (*iam.ListAttachedRolePoliciesOutput, error) {
+	if f.policyErr != nil {
+		return nil, f.policyErr
+	}
+	return &iam.ListAttachedRolePoliciesOutput{
+		AttachedPolicies: f.attachedRoles[aws.ToString(params.RoleName)],
 	}, nil
+}
+
+func (f *fakeIAM) ListRolePolicies(_ context.Context, params *iam.ListRolePoliciesInput, _ ...func(*iam.Options)) (*iam.ListRolePoliciesOutput, error) {
+	var names []string
+	for name := range f.inlineRoles[aws.ToString(params.RoleName)] {
+		names = append(names, name)
+	}
+	return &iam.ListRolePoliciesOutput{PolicyNames: names}, nil
+}
+
+func (f *fakeIAM) GetRolePolicy(_ context.Context, params *iam.GetRolePolicyInput, _ ...func(*iam.Options)) (*iam.GetRolePolicyOutput, error) {
+	doc, ok := f.inlineRoles[aws.ToString(params.RoleName)][aws.ToString(params.PolicyName)]
+	if !ok {
+		return nil, fmt.Errorf("unknown inline policy %s on role %s", aws.ToString(params.PolicyName), aws.ToString(params.RoleName))
+	}
+	return &iam.GetRolePolicyOutput{PolicyDocument: aws.String(doc)}, nil
+}
+
+func (f *fakeIAM) ListAttachedUserPolicies(_ context.Context, params *iam.ListAttachedUserPoliciesInput, _ ...func(*iam.Options)) (*iam.ListAttachedUserPoliciesOutput, error) {
+	if f.policyErr != nil {
+		return nil, f.policyErr
+	}
+	return &iam.ListAttachedUserPoliciesOutput{
+		AttachedPolicies: f.attachedUsers[aws.ToString(params.UserName)],
+	}, nil
+}
+
+func (f *fakeIAM) ListUserPolicies(_ context.Context, params *iam.ListUserPoliciesInput, _ ...func(*iam.Options)) (*iam.ListUserPoliciesOutput, error) {
+	var names []string
+	for name := range f.inlineUsers[aws.ToString(params.UserName)] {
+		names = append(names, name)
+	}
+	return &iam.ListUserPoliciesOutput{PolicyNames: names}, nil
+}
+
+func (f *fakeIAM) GetUserPolicy(_ context.Context, params *iam.GetUserPolicyInput, _ ...func(*iam.Options)) (*iam.GetUserPolicyOutput, error) {
+	doc, ok := f.inlineUsers[aws.ToString(params.UserName)][aws.ToString(params.PolicyName)]
+	if !ok {
+		return nil, fmt.Errorf("unknown inline policy %s on user %s", aws.ToString(params.PolicyName), aws.ToString(params.UserName))
+	}
+	return &iam.GetUserPolicyOutput{PolicyDocument: aws.String(doc)}, nil
+}
+
+func (f *fakeIAM) GetPolicy(_ context.Context, params *iam.GetPolicyInput, _ ...func(*iam.Options)) (*iam.GetPolicyOutput, error) {
+	arn := aws.ToString(params.PolicyArn)
+	f.fetchedPolicies = append(f.fetchedPolicies, arn)
+	if _, ok := f.managedDocs[arn]; !ok {
+		return nil, fmt.Errorf("unknown policy %s", arn)
+	}
+	return &iam.GetPolicyOutput{Policy: &iamtypes.Policy{
+		Arn:              params.PolicyArn,
+		DefaultVersionId: aws.String("v1"),
+	}}, nil
+}
+
+func (f *fakeIAM) GetPolicyVersion(_ context.Context, params *iam.GetPolicyVersionInput, _ ...func(*iam.Options)) (*iam.GetPolicyVersionOutput, error) {
+	arn := aws.ToString(params.PolicyArn)
+	doc, ok := f.managedDocs[arn]
+	if !ok {
+		return nil, fmt.Errorf("unknown policy %s", arn)
+	}
+	return &iam.GetPolicyVersionOutput{PolicyVersion: &iamtypes.PolicyVersion{
+		Document:  aws.String(doc),
+		VersionId: aws.String("v1"),
+	}}, nil
 }
 
 func (f *fakeIAM) ListMFADevices(context.Context, *iam.ListMFADevicesInput, ...func(*iam.Options)) (*iam.ListMFADevicesOutput, error) {
