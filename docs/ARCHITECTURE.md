@@ -72,8 +72,13 @@ See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings
 
 ## What's next (Phase 3)
 
+- Exposure, identity, and access edges
+- CVE enrichment tied to workload inventory
+- Rescans and query limits
+- Self-hosted operability (read auth, health, scheduled scans, console)
 - Broader community rule packs (PCI and additional CIS mappings)
+- Cloud audit logs as graph context
 
-Details: [ROADMAP.md](./ROADMAP.md)
+Issue links: [ROADMAP.md](./ROADMAP.md)
 
 See the [website architecture page](https://opensourceom.org/docs/architecture/) for user-facing documentation.

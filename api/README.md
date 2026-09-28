@@ -14,4 +14,4 @@ HTTP and GraphQL API for the web UI, collectors, and integrations.
 - `GET /v1/findings` — prioritized findings with path context
 - `GET /v1/health` — readiness for orchestration
 
-Authentication: API keys in dev; OIDC / mTLS for production (planned).
+Authentication: a shared API secret (`OM_API_SECRET`) for this self-hosted API. SSO and other enterprise identity integrations are commercial and live outside this repo.

@@ -24,7 +24,7 @@ High-level plan for OpenSourceOM core. Timelines are approximate and community-d
 - [x] Azure collector (VM, RBAC, Storage)
 - [x] GCP collector (GCE, IAM, GCS)
 
-## Phase 2 — CNAPP parity (core features) *(current)*
+## Phase 2 — CNAPP parity (core features)
 
 - [x] CSPM rules engine with graph context
 - [x] Identity blast radius reports
@@ -34,10 +34,18 @@ High-level plan for OpenSourceOM core. Timelines are approximate and community-d
 ## Phase 3 — Ecosystem *(current)*
 
 - [x] Plugin SDK for custom collectors (`sdk/collector`, `om scan plugin`)
-- [ ] Broader community rule packs (PCI and additional CIS mappings)
 - [x] Helm chart for production Kubernetes
 - [x] Community rule packs (CIS AWS–inspired YAML pack + embed loader)
 - [x] Sample environment (`om scan demo`)
+- [ ] Broader community rule packs (PCI and additional CIS mappings) — [#10](https://github.com/OpenSourceOM/core/issues/10)
+
+Phases 0–2 shipped the walking skeleton. Current work is correctness and operability on that skeleton:
+
+- **Exposure, identity, and access edges** — [#11](https://github.com/OpenSourceOM/core/issues/11), [#14](https://github.com/OpenSourceOM/core/issues/14), [#25](https://github.com/OpenSourceOM/core/issues/25), [#26](https://github.com/OpenSourceOM/core/issues/26), [#27](https://github.com/OpenSourceOM/core/issues/27), [#28](https://github.com/OpenSourceOM/core/issues/28), [#29](https://github.com/OpenSourceOM/core/issues/29), [#30](https://github.com/OpenSourceOM/core/issues/30), [#31](https://github.com/OpenSourceOM/core/issues/31)
+- **CVE enrichment tied to workload inventory** — [#12](https://github.com/OpenSourceOM/core/issues/12)
+- **Rescans and query limits** — [#20](https://github.com/OpenSourceOM/core/issues/20), [#21](https://github.com/OpenSourceOM/core/issues/21)
+- **Self-hosted operability** — [#22](https://github.com/OpenSourceOM/core/issues/22), [#23](https://github.com/OpenSourceOM/core/issues/23), [#32](https://github.com/OpenSourceOM/core/issues/32), [#34](https://github.com/OpenSourceOM/core/issues/34)
+- **Cloud audit logs as graph context** — [#33](https://github.com/OpenSourceOM/core/issues/33)
 
 ## Open source vs. commercial
 
@@ -50,12 +58,12 @@ The free OSS core focuses on **defending against external attackers** — unders
 | Multi-cloud + Kubernetes inventory | Multi-tenant RBAC, org/account scoping |
 | Self-hosted API, CLI, and web console | SAML / SSO and enterprise identity integrations |
 | Community collectors and rule packs | Enterprise compliance workflows |
-| Cloud audit ingest as graph context (planned) | Immutable platform audit logs (who used OpenSourceOM) |
+| Cloud audit ingest as graph context | Immutable platform audit logs (who used OpenSourceOM) |
 
-Cloud provider audit APIs (for example CloudTrail) may later feed the OSS graph as evidence of exposure and attack paths. **Platform audit logs** — operator actions in the console/API, SSO identity, retention, and auditor export — belong in the commercial offering.
+Cloud provider audit APIs (for example CloudTrail) are Phase 3 graph context ([#33](https://github.com/OpenSourceOM/core/issues/33)): evidence of exposure and attack paths. **Platform audit logs** — operator actions in the console/API, SSO identity, retention, and auditor export — belong in the commercial offering.
 
 This split keeps the OSS project useful for any team that needs graph-native **external** risk prioritization, while commercial offerings can address **internal** risk and enterprise deployment needs without bloating the core repo.
 
 ## How to influence the roadmap
 
-Open a [GitHub Discussion](https://github.com/OpenSourceOM/core/discussions) with the `roadmap` label, or comment on an existing issue. We prioritize features that improve **graph accuracy**, **prioritization quality**, and **self-hosted operability**.
+Comment on an [open issue](https://github.com/OpenSourceOM/core/issues), or open a [GitHub Discussion](https://github.com/OpenSourceOM/core/discussions) with the `roadmap` label when the change is not tracked yet. We prioritize features that improve **graph accuracy**, **prioritization quality**, and **self-hosted operability**.
