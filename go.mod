@@ -16,7 +16,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/iam v1.59.2
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.107.3
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.1
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/spf13/cobra v1.10.2
 	google.golang.org/api v0.293.0
 	gopkg.in/yaml.v3 v3.0.1
