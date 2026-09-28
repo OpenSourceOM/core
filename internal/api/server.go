@@ -176,20 +176,24 @@ func (s *Server) handleExportSlack(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
-	webhook := r.URL.Query().Get("webhook")
-	if webhook == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "webhook query parameter required"})
+
+	webhook, err := slackWebhookFromRequest(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+
 	records, err := export.LoadFindingRecords(r.Context(), s.store)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+
 	if err := export.PostSlack(r.Context(), webhook, records); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+
 	writeJSON(w, http.StatusOK, map[string]any{"exported": len(records)})
 }
 
@@ -286,4 +290,22 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 func Ping(ctx context.Context, store *graph.Store) error {
 	_, err := store.Stats(ctx)
 	return err
+}
+
+func slackWebhookFromRequest(r *http.Request) (string, error) {
+	if r.URL.Query().Has("webhook") {
+		return "", fmt.Errorf("webhook query parameter is not allowed")
+	}
+
+	var req struct {
+		Webhook string `json:"webhook"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return "", fmt.Errorf("invalid request body")
+	}
+	if req.Webhook == "" {
+		return "", fmt.Errorf("webhook required")
+	}
+
+	return req.Webhook, nil
 }
