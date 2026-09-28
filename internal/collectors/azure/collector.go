@@ -12,6 +12,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v6"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v8"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources/v3"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage/v3"
 	"github.com/OpenSourceOM/core/internal/graph"
@@ -73,6 +74,15 @@ func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential,
 	if err != nil {
 		return err
 	}
+	nicClient, err := armnetwork.NewInterfacesClient(c.SubscriptionID, cred, nil)
+	if err != nil {
+		return err
+	}
+	pipClient, err := armnetwork.NewPublicIPAddressesClient(c.SubscriptionID, cred, nil)
+	if err != nil {
+		return err
+	}
+	networkAPI := armNetworkAPI{nics: nicClient, pips: pipClient}
 
 	pager := rgClient.NewListPager(nil)
 	for pager.More() {
@@ -100,11 +110,9 @@ func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential,
 						location = *vm.Location
 					}
 
-					publicIP := ""
-					if vm.Properties != nil && vm.Properties.NetworkProfile != nil {
-						for _, nicRef := range vm.Properties.NetworkProfile.NetworkInterfaces {
-							_ = nicRef
-						}
+					publicIP, err := vmPublicIP(ctx, networkAPI, vm)
+					if err != nil {
+						return err
 					}
 
 					batch.Nodes = append(batch.Nodes, graph.Node{
@@ -120,14 +128,7 @@ func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential,
 						}),
 					})
 
-					if publicIP != "" {
-						batch.Edges = append(batch.Edges, graph.Edge{
-							ID:       c.edgeID(graph.InternetNodeID, workloadID, graph.EdgeReachable),
-							SourceID: graph.InternetNodeID,
-							TargetID: workloadID,
-							Type:     graph.EdgeReachable,
-						})
-					}
+					c.addInternetEdge(batch, workloadID, publicIP)
 				}
 			}
 		}
@@ -137,6 +138,10 @@ func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential,
 
 func (c *Collector) collectStorage(ctx context.Context, cred azcore.TokenCredential, batch *graph.Batch) error {
 	client, err := armstorage.NewAccountsClient(c.SubscriptionID, cred, nil)
+	if err != nil {
+		return err
+	}
+	containerClient, err := armstorage.NewBlobContainersClient(c.SubscriptionID, cred, nil)
 	if err != nil {
 		return err
 	}
@@ -155,9 +160,9 @@ func (c *Collector) collectStorage(ctx context.Context, cred azcore.TokenCredent
 			if account.Location != nil {
 				location = *account.Location
 			}
-			publicAccess := false
-			if account.Properties != nil && account.Properties.AllowBlobPublicAccess != nil {
-				publicAccess = *account.Properties.AllowBlobPublicAccess
+			publicAccess, err := c.storagePublicAccess(ctx, containerClient, account)
+			if err != nil {
+				return err
 			}
 
 			datastoreID := c.nodeID("datastore", *account.Name)
@@ -176,6 +181,30 @@ func (c *Collector) collectStorage(ctx context.Context, cred azcore.TokenCredent
 		}
 	}
 	return nil
+}
+
+func (c *Collector) storagePublicAccess(ctx context.Context, client *armstorage.BlobContainersClient, account *armstorage.Account) (bool, error) {
+	var allow *bool
+	if account.Properties != nil {
+		allow = account.Properties.AllowBlobPublicAccess
+	}
+	if allow != nil && !*allow {
+		return false, nil
+	}
+	resourceGroup, ok := azureResourceGroup(safeString(account.ID))
+	if !ok {
+		return false, fmt.Errorf("storage account %s: missing resource group", safeString(account.Name))
+	}
+	var containers []*armstorage.ListContainerItem
+	pager := client.NewListPager(resourceGroup, safeString(account.Name), nil)
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return false, fmt.Errorf("list containers for %s: %w", safeString(account.Name), err)
+		}
+		containers = append(containers, page.Value...)
+	}
+	return azureBlobPublic(allow, containers), nil
 }
 
 func (c *Collector) collectRBAC(ctx context.Context, cred azcore.TokenCredential, batch *graph.Batch) error {

@@ -128,7 +128,10 @@ func (c *Collector) collectStorage(ctx context.Context, batch *graph.Batch) erro
 			return fmt.Errorf("list buckets: %w", err)
 		}
 
-		publicAccess := bucketAttrs.PublicAccessPrevention != storage.PublicAccessPreventionEnforced
+		publicAccess := false
+		if policy, err := client.Bucket(bucketAttrs.Name).IAM().Policy(ctx); err == nil {
+			publicAccess = gcsPolicyGrantsPublicRead(policy)
+		}
 		datastoreID := c.nodeID(c.Region, "datastore", bucketAttrs.Name)
 		batch.Nodes = append(batch.Nodes, graph.Node{
 			ID:        datastoreID,

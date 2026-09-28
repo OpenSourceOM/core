@@ -159,3 +159,136 @@ func (s *stringOrList) UnmarshalJSON(data []byte) error {
 func bytesTrim(data []byte) []byte {
 	return []byte(strings.TrimSpace(string(data)))
 }
+
+// s3PolicyGrantsAnonymousRead reports whether a bucket policy allows anonymous
+// or all-authenticated object reads. Conditional and deny statements do not count.
+func s3PolicyGrantsAnonymousRead(document string) (bool, error) {
+	document = strings.TrimSpace(document)
+	if document == "" {
+		return false, nil
+	}
+	var doc bucketPolicyDocument
+	if err := json.Unmarshal([]byte(document), &doc); err != nil {
+		return false, fmt.Errorf("parse bucket policy: %w", err)
+	}
+	for _, stmt := range doc.Statement {
+		if !strings.EqualFold(stmt.Effect, "Allow") || !stmt.Principal.anonymous {
+			continue
+		}
+		if len(stmt.NotAction) > 0 || hasPolicyCondition(stmt.Condition) || hasPolicyValue(stmt.NotPrincipal) {
+			continue
+		}
+		if actionsGrantObjectRead(stmt.Action) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func actionsGrantObjectRead(actions []string) bool {
+	for _, action := range actions {
+		if actionGrantsObjectRead(action) {
+			return true
+		}
+	}
+	return false
+}
+
+func actionGrantsObjectRead(action string) bool {
+	action = strings.ToLower(strings.TrimSpace(action))
+	switch action {
+	case "*", "*:*", "s3:*", "s3:get*", "s3:getobject", "s3:getobjectversion":
+		return true
+	default:
+		return strings.HasPrefix(action, "s3:getobject")
+	}
+}
+
+func hasPolicyCondition(raw json.RawMessage) bool {
+	raw = bytesTrim(raw)
+	return len(raw) > 0 && string(raw) != "null" && string(raw) != "{}"
+}
+
+func hasPolicyValue(raw json.RawMessage) bool {
+	raw = bytesTrim(raw)
+	return len(raw) > 0 && string(raw) != "null"
+}
+
+type bucketPolicyDocument struct {
+	Statement bucketStatementList `json:"Statement"`
+}
+
+type bucketStatementList []bucketPolicyStatement
+
+func (s *bucketStatementList) UnmarshalJSON(data []byte) error {
+	data = bytesTrim(data)
+	if len(data) == 0 || string(data) == "null" {
+		return nil
+	}
+	if data[0] == '{' {
+		var one bucketPolicyStatement
+		if err := json.Unmarshal(data, &one); err != nil {
+			return err
+		}
+		*s = []bucketPolicyStatement{one}
+		return nil
+	}
+	var many []bucketPolicyStatement
+	if err := json.Unmarshal(data, &many); err != nil {
+		return err
+	}
+	*s = many
+	return nil
+}
+
+type bucketPolicyStatement struct {
+	Effect       string          `json:"Effect"`
+	Principal    bucketPrincipal `json:"Principal"`
+	NotPrincipal json.RawMessage `json:"NotPrincipal"`
+	Action       stringOrList    `json:"Action"`
+	NotAction    stringOrList    `json:"NotAction"`
+	Condition    json.RawMessage `json:"Condition"`
+}
+
+type bucketPrincipal struct {
+	anonymous bool
+}
+
+func (p *bucketPrincipal) UnmarshalJSON(data []byte) error {
+	data = bytesTrim(data)
+	if len(data) == 0 || string(data) == "null" {
+		return nil
+	}
+	if data[0] == '"' {
+		var one string
+		if err := json.Unmarshal(data, &one); err != nil {
+			return err
+		}
+		p.anonymous = one == "*"
+		return nil
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	raw, ok := obj["AWS"]
+	if !ok {
+		return nil
+	}
+	var one string
+	if err := json.Unmarshal(raw, &one); err == nil {
+		p.anonymous = one == "*"
+		return nil
+	}
+	var many []string
+	if err := json.Unmarshal(raw, &many); err != nil {
+		return err
+	}
+	for _, member := range many {
+		if member == "*" {
+			p.anonymous = true
+			return nil
+		}
+	}
+	return nil
+}
