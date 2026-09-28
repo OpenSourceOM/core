@@ -64,11 +64,12 @@ func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
 	s3Client := s3.NewFromConfig(cfg)
 
 	sgInternetFacing := map[string]bool{}
+	var profiles []instanceProfileUse
 
 	if err := c.collectSecurityGroups(ctx, ec2Client, &batch, sgInternetFacing); err != nil {
 		return graph.Batch{}, err
 	}
-	if err := c.collectEC2(ctx, ec2Client, &batch, sgInternetFacing); err != nil {
+	if err := c.collectEC2(ctx, ec2Client, &batch, sgInternetFacing, &profiles); err != nil {
 		return graph.Batch{}, err
 	}
 	if err := c.collectIAM(ctx, iamClient, &batch); err != nil {
@@ -77,8 +78,10 @@ func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
 	if err := c.collectS3(ctx, s3Client, &batch); err != nil {
 		return graph.Batch{}, err
 	}
+	if err := c.linkInstanceProfileAccess(ctx, iamClient, &batch, profiles); err != nil {
+		return graph.Batch{}, err
+	}
 
-	c.linkInternetWorkloadsToPublicDatastores(&batch)
 	return batch, nil
 }
 
@@ -100,18 +103,18 @@ func (c *Collector) collectSecurityGroups(ctx context.Context, client *ec2.Clien
 			Provider:  "aws",
 			Region:    c.Region,
 			AccountID: c.AccountID,
-				Properties: graph.MustProperties(map[string]any{
-					"resource_id":     sgID,
-					"internet_facing": internetFacing,
-					"open_ingress":    internetFacing,
-					"vpc_id":          aws.ToString(sg.VpcId),
-				}),
+			Properties: graph.MustProperties(map[string]any{
+				"resource_id":     sgID,
+				"internet_facing": internetFacing,
+				"open_ingress":    internetFacing,
+				"vpc_id":          aws.ToString(sg.VpcId),
+			}),
 		})
 	}
 	return nil
 }
 
-func (c *Collector) collectEC2(ctx context.Context, client *ec2.Client, batch *graph.Batch, sgInternetFacing map[string]bool) error {
+func (c *Collector) collectEC2(ctx context.Context, client *ec2.Client, batch *graph.Batch, sgInternetFacing map[string]bool, profiles *[]instanceProfileUse) error {
 	out, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{})
 	if err != nil {
 		return fmt.Errorf("describe instances: %w", err)
@@ -143,6 +146,15 @@ func (c *Collector) collectEC2(ctx context.Context, client *ec2.Client, batch *g
 					"os_platform":       ec2Platform(instance),
 				}),
 			})
+
+			if instance.IamInstanceProfile != nil {
+				if arn := aws.ToString(instance.IamInstanceProfile.Arn); arn != "" {
+					*profiles = append(*profiles, instanceProfileUse{
+						workloadID: workloadID,
+						profileARN: arn,
+					})
+				}
+			}
 
 			for _, sgRef := range instance.SecurityGroups {
 				sgID := aws.ToString(sgRef.GroupId)
@@ -302,65 +314,8 @@ func (c *Collector) collectS3(ctx context.Context, client *s3.Client, batch *gra
 				"versioning":          versioning,
 			}),
 		})
-
-		// Phase 0 heuristic: link admin identities to public buckets in same account.
-		for _, node := range batch.Nodes {
-			if node.Type != graph.NodeIdentity {
-				continue
-			}
-			admin, _ := node.Properties["admin_access"].(bool)
-			if !admin || !publicAccess {
-				continue
-			}
-			batch.Edges = append(batch.Edges, graph.Edge{
-				ID:       c.edgeID(node.ID, bucketID, graph.EdgeCanAccess),
-				SourceID: node.ID,
-				TargetID: bucketID,
-				Type:     graph.EdgeCanAccess,
-				Properties: graph.MustProperties(map[string]any{
-					"heuristic": "phase0-admin-to-public-s3",
-				}),
-			})
-		}
 	}
 	return nil
-}
-
-func (c *Collector) linkInternetWorkloadsToPublicDatastores(batch *graph.Batch) {
-	internetWorkloads := map[string]bool{}
-	for _, edge := range batch.Edges {
-		if edge.SourceID == graph.InternetNodeID && edge.Type == graph.EdgeReachable {
-			internetWorkloads[edge.TargetID] = true
-		}
-	}
-
-	var publicDatastores []graph.Node
-	for _, node := range batch.Nodes {
-		if node.Type != graph.NodeDatastore {
-			continue
-		}
-		public, _ := node.Properties["public_access"].(bool)
-		if public {
-			publicDatastores = append(publicDatastores, node)
-		}
-	}
-
-	for _, node := range batch.Nodes {
-		if node.Type != graph.NodeWorkload || !internetWorkloads[node.ID] {
-			continue
-		}
-		for _, datastore := range publicDatastores {
-			batch.Edges = append(batch.Edges, graph.Edge{
-				ID:       c.edgeID(node.ID, datastore.ID, graph.EdgeCanAccess),
-				SourceID: node.ID,
-				TargetID: datastore.ID,
-				Type:     graph.EdgeCanAccess,
-				Properties: graph.MustProperties(map[string]any{
-					"heuristic": "phase1-internet-workload-to-public-datastore",
-				}),
-			})
-		}
-	}
 }
 
 func ec2Platform(instance ec2types.Instance) string {
