@@ -39,13 +39,22 @@ High-level plan for OpenSourceOM core. Timelines are approximate and community-d
 - [x] Sample environment (`om scan demo`)
 - [ ] Broader community rule packs (PCI and additional CIS mappings) — [#10](https://github.com/OpenSourceOM/core/issues/10)
 
-Phases 0–2 shipped the walking skeleton. Current work is correctness and operability on that skeleton:
+Phases 0–2 shipped the walking skeleton. Current work is making that skeleton true: exposure and identity edges that match the cloud, findings that match installed software, and the attack path as the thing an operator fixes.
 
-- **Exposure, identity, and access edges** — [#11](https://github.com/OpenSourceOM/core/issues/11), [#25](https://github.com/OpenSourceOM/core/issues/25)
-- **CVE enrichment tied to workload inventory** — [#12](https://github.com/OpenSourceOM/core/issues/12)
+Correctness and operability come first:
+
+- **Exposure and identity edges** — [#11](https://github.com/OpenSourceOM/core/issues/11), [#25](https://github.com/OpenSourceOM/core/issues/25)
 - **Query limits** — [#20](https://github.com/OpenSourceOM/core/issues/20)
 - **Self-hosted operability** — [#22](https://github.com/OpenSourceOM/core/issues/22), [#32](https://github.com/OpenSourceOM/core/issues/32), [#34](https://github.com/OpenSourceOM/core/issues/34)
-- **Cloud audit logs as graph context** — [#33](https://github.com/OpenSourceOM/core/issues/33)
+
+The path, in order:
+
+- **CVE enrichment tied to workload inventory** — [#12](https://github.com/OpenSourceOM/core/issues/12)
+- **Crown-jewel mark on datastores** — [#58](https://github.com/OpenSourceOM/core/issues/58)
+- **Attack path as the finding** — [#57](https://github.com/OpenSourceOM/core/issues/57)
+- **Cloud audit logs as graph context** — [#33](https://github.com/OpenSourceOM/core/issues/33), after those edges are trustworthy
+
+[#10](https://github.com/OpenSourceOM/core/issues/10) stays open for a contributor who wants another rule pack. The priority above is graph accuracy.
 
 ## Open source vs. commercial
 
