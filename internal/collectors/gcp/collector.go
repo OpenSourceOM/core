@@ -76,58 +76,161 @@ func (c *Collector) collectInstances(ctx context.Context, batch *graph.Batch) ([
 		return nil, fmt.Errorf("compute client: %w", err)
 	}
 
-	resp, err := service.Instances.AggregatedList(c.ProjectID).Context(ctx).Do()
+	var instances []scopedInstance
+	err = service.Instances.AggregatedList(c.ProjectID).Pages(ctx, func(resp *compute.InstanceAggregatedList) error {
+		for zonePath, scoped := range resp.Items {
+			zone := zoneFromPath(zonePath)
+			for _, instance := range scoped.Instances {
+				instances = append(instances, scopedInstance{zone: zone, instance: instance})
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list instances: %w", err)
 	}
 
+	firewalls, err := listFirewalls(ctx, service, c.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	lbTargets, err := listLoadBalancerTargets(ctx, service, c.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+
 	var uses []gcpInstanceSA
-	for zonePath, scoped := range resp.Items {
-		zone := zoneFromPath(zonePath)
-		for _, instance := range scoped.Instances {
-			workloadID := c.nodeID(zone, "workload", instance.Name)
-			publicIP := ""
-			for _, nic := range instance.NetworkInterfaces {
-				if nic.AccessConfigs != nil {
-					for _, access := range nic.AccessConfigs {
-						if access.NatIP != "" {
-							publicIP = access.NatIP
-						}
-					}
-				}
-			}
-
-			batch.Nodes = append(batch.Nodes, graph.Node{
-				ID:        workloadID,
-				Type:      graph.NodeWorkload,
-				Name:      instance.Name,
-				Provider:  "gcp",
-				Region:    zone,
-				AccountID: c.ProjectID,
-				Properties: graph.MustProperties(map[string]any{
-					"resource_id": instance.SelfLink,
-					"public_ip":   publicIP,
-					"status":      instance.Status,
-				}),
-			})
-
-			if publicIP != "" {
-				batch.Edges = append(batch.Edges, graph.Edge{
-					ID:       c.edgeID(graph.InternetNodeID, workloadID, graph.EdgeReachable),
-					SourceID: graph.InternetNodeID,
-					TargetID: workloadID,
-					Type:     graph.EdgeReachable,
-				})
-			}
-			for _, sa := range instance.ServiceAccounts {
-				if sa == nil || sa.Email == "" {
-					continue
-				}
-				uses = append(uses, gcpInstanceSA{WorkloadID: workloadID, Email: sa.Email})
-			}
-		}
+	seen := map[string]struct{}{}
+	for _, item := range instances {
+		uses = append(uses, c.recordInstance(batch, item.zone, item.instance, firewalls, lbTargets, seen)...)
 	}
 	return uses, nil
+}
+
+type scopedInstance struct {
+	zone     string
+	instance *compute.Instance
+}
+
+func listFirewalls(ctx context.Context, service *compute.Service, projectID string) ([]*compute.Firewall, error) {
+	var firewalls []*compute.Firewall
+	err := service.Firewalls.List(projectID).Pages(ctx, func(page *compute.FirewallList) error {
+		firewalls = append(firewalls, page.Items...)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list firewall rules: %w", err)
+	}
+	return firewalls, nil
+}
+
+func listLoadBalancerTargets(ctx context.Context, service *compute.Service, projectID string) (map[string]string, error) {
+	rules, err := listForwardingRules(ctx, service, projectID)
+	if err != nil {
+		return nil, err
+	}
+	pools, err := listTargetPools(ctx, service, projectID)
+	if err != nil {
+		return nil, err
+	}
+	services, err := listBackendServices(ctx, service, projectID)
+	if err != nil {
+		return nil, err
+	}
+	members, err := listInstanceGroupMembers(ctx, service, projectID, externalInstanceGroups(rules, services))
+	if err != nil {
+		return nil, err
+	}
+	return gcpLoadBalancerTargets(rules, pools, services, members), nil
+}
+
+func listForwardingRules(ctx context.Context, service *compute.Service, projectID string) ([]*compute.ForwardingRule, error) {
+	var rules []*compute.ForwardingRule
+	err := service.ForwardingRules.AggregatedList(projectID).Pages(ctx, func(page *compute.ForwardingRuleAggregatedList) error {
+		for _, scoped := range page.Items {
+			rules = append(rules, scoped.ForwardingRules...)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list forwarding rules: %w", err)
+	}
+	return rules, nil
+}
+
+func listTargetPools(ctx context.Context, service *compute.Service, projectID string) ([]*compute.TargetPool, error) {
+	var pools []*compute.TargetPool
+	err := service.TargetPools.AggregatedList(projectID).Pages(ctx, func(page *compute.TargetPoolAggregatedList) error {
+		for _, scoped := range page.Items {
+			pools = append(pools, scoped.TargetPools...)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list target pools: %w", err)
+	}
+	return pools, nil
+}
+
+func listBackendServices(ctx context.Context, service *compute.Service, projectID string) ([]*compute.BackendService, error) {
+	var services []*compute.BackendService
+	err := service.BackendServices.AggregatedList(projectID).Pages(ctx, func(page *compute.BackendServiceAggregatedList) error {
+		for _, scoped := range page.Items {
+			services = append(services, scoped.BackendServices...)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list backend services: %w", err)
+	}
+	return services, nil
+}
+
+func listInstanceGroupMembers(ctx context.Context, service *compute.Service, projectID string, groups []string) (map[string][]string, error) {
+	members := map[string][]string{}
+	for _, groupURL := range groups {
+		ref, ok := parseInstanceGroup(groupURL)
+		if !ok {
+			continue
+		}
+		project := ref.Project
+		if project == "" {
+			project = projectID
+		}
+		var instances []string
+		if ref.Regional {
+			err := service.RegionInstanceGroups.ListInstances(project, ref.Scope, ref.Name, &compute.RegionInstanceGroupsListInstancesRequest{
+				InstanceState: "ALL",
+			}).Pages(ctx, func(page *compute.RegionInstanceGroupsListInstances) error {
+				for _, item := range page.Items {
+					if item != nil && item.Instance != "" {
+						instances = append(instances, item.Instance)
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, fmt.Errorf("list instances in %s: %w", groupURL, err)
+			}
+		} else {
+			err := service.InstanceGroups.ListInstances(project, ref.Scope, ref.Name, &compute.InstanceGroupsListInstancesRequest{
+				InstanceState: "ALL",
+			}).Pages(ctx, func(page *compute.InstanceGroupsListInstances) error {
+				for _, item := range page.Items {
+					if item != nil && item.Instance != "" {
+						instances = append(instances, item.Instance)
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, fmt.Errorf("list instances in %s: %w", groupURL, err)
+			}
+		}
+		members[groupURL] = instances
+		members[ref.Name] = instances
+	}
+	return members, nil
 }
 
 func (c *Collector) collectStorage(ctx context.Context, batch *graph.Batch) ([]gcpBinding, error) {

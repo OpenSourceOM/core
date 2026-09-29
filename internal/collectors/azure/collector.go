@@ -87,6 +87,22 @@ func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential,
 		return nil, err
 	}
 	networkAPI := armNetworkAPI{nics: nicClient, pips: pipClient}
+	nsgs, err := c.listSecurityGroups(ctx, cred)
+	if err != nil {
+		return nil, err
+	}
+	lbs, err := c.listLoadBalancers(ctx, cred)
+	if err != nil {
+		return nil, err
+	}
+	vnets, err := c.listVirtualNetworks(ctx, cred)
+	if err != nil {
+		return nil, err
+	}
+	nsgByID := indexSecurityGroups(nsgs)
+	lbTargets := azurePublicLBTargets(lbs)
+	subnetNSG := subnetNSGIndex(vnets)
+	seenNetwork := map[string]struct{}{}
 
 	var uses []azureIdentityUse
 	pager := rgClient.NewListPager(nil)
@@ -115,9 +131,16 @@ func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential,
 						location = *vm.Location
 					}
 
-					publicIP, err := vmPublicIP(ctx, networkAPI, vm)
+					nics, err := readVMNetwork(ctx, networkAPI, vm, subnetNSG)
 					if err != nil {
 						return nil, err
+					}
+					publicIP := ""
+					for _, nic := range nics {
+						if nic.PublicIP != "" {
+							publicIP = nic.PublicIP
+							break
+						}
 					}
 
 					batch.Nodes = append(batch.Nodes, graph.Node{
@@ -133,13 +156,66 @@ func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential,
 						}),
 					})
 
-					c.addInternetEdge(batch, workloadID, publicIP)
+					if err := c.attachAzureExposure(batch, workloadID, nics, nsgByID, lbTargets, seenNetwork); err != nil {
+						return nil, err
+					}
 					uses = append(uses, vmIdentityUses(workloadID, vm.Identity)...)
 				}
 			}
 		}
 	}
 	return uses, nil
+}
+
+func (c *Collector) listSecurityGroups(ctx context.Context, cred azcore.TokenCredential) ([]*armnetwork.SecurityGroup, error) {
+	client, err := armnetwork.NewSecurityGroupsClient(c.SubscriptionID, cred, nil)
+	if err != nil {
+		return nil, err
+	}
+	var groups []*armnetwork.SecurityGroup
+	pager := client.NewListAllPager(nil)
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list network security groups: %w", err)
+		}
+		groups = append(groups, page.Value...)
+	}
+	return groups, nil
+}
+
+func (c *Collector) listLoadBalancers(ctx context.Context, cred azcore.TokenCredential) ([]*armnetwork.LoadBalancer, error) {
+	client, err := armnetwork.NewLoadBalancersClient(c.SubscriptionID, cred, nil)
+	if err != nil {
+		return nil, err
+	}
+	var lbs []*armnetwork.LoadBalancer
+	pager := client.NewListAllPager(nil)
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list load balancers: %w", err)
+		}
+		lbs = append(lbs, page.Value...)
+	}
+	return lbs, nil
+}
+
+func (c *Collector) listVirtualNetworks(ctx context.Context, cred azcore.TokenCredential) ([]*armnetwork.VirtualNetwork, error) {
+	client, err := armnetwork.NewVirtualNetworksClient(c.SubscriptionID, cred, nil)
+	if err != nil {
+		return nil, err
+	}
+	var vnets []*armnetwork.VirtualNetwork
+	pager := client.NewListAllPager(nil)
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list virtual networks: %w", err)
+		}
+		vnets = append(vnets, page.Value...)
+	}
+	return vnets, nil
 }
 
 func (c *Collector) collectStorage(ctx context.Context, cred azcore.TokenCredential, batch *graph.Batch) error {

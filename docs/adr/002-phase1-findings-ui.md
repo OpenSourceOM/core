@@ -44,8 +44,8 @@ Auth uses each cloud's default credential chain (`DefaultAzureCredential`, GCP A
 
 ## Consequences
 
-- Heuristic edges and default Log4Shell CVE for demo enrichment were placeholders. Azure and GCP `CAN_ACCESS` now follow role-assignment scope and IAM bindings; the same-account link from every internet-facing workload to every public datastore has been removed. `REACHABLE` for those clouds still ignores firewall rules. The Log4Shell default remains a placeholder.
-- Azure VM public IP detection is not yet wired through NIC lookup; GCP and AWS set `REACHABLE` when a public IP is present.
+- Heuristic edges and default Log4Shell CVE for demo enrichment were placeholders. Azure and GCP `CAN_ACCESS` now follow role-assignment scope and IAM bindings; the same-account link from every internet-facing workload to every public datastore has been removed. `REACHABLE` for those clouds requires an internet path and a firewall or NSG allow, including a private instance behind a public load balancer. The Log4Shell default remains a placeholder.
+- Azure VM public IP detection follows the NIC to the address. A public IP with no NSG is reachable. A public IP whose NSG or subnet NSG does not allow the internet is not. GCP sets `REACHABLE` only when a public address or external load balancer is also allowed by a firewall rule.
 - UI is static HTML/JS embedded in Go — a dedicated frontend package may split out later.
 
 ## References
