@@ -27,11 +27,11 @@ The **AWS** collector emits properties the CIS pack matches on: `open_ingress`, 
 Each built-in collector:
 
 1. **Discover** — list resources and relationships
-2. **Emit** — upsert normalized nodes/edges into the graph store
+2. **Emit** — replace that account's inventory in the graph store (nodes and edges absent from the new batch are deleted)
 
 ## External plugins
 
-`om scan plugin` runs an executable and ingests the graph batch it writes to stdout. Go plugins import `github.com/OpenSourceOM/core/sdk/collector`, implement `Collector`, and call `collector.Run` from `main`. Other languages emit the same JSON (`nodes` and `edges`, schema v0). See [ADR 004](../docs/adr/004-collector-plugin-sdk.md) and [examples/collector](../examples/collector).
+`om scan plugin` runs an executable and replaces inventory for each account in the graph batch it writes to stdout. Go plugins import `github.com/OpenSourceOM/core/sdk/collector`, implement `Collector`, and call `collector.Run` from `main`. Other languages emit the same JSON (`nodes` and `edges`, schema v0). See [ADR 004](../docs/adr/004-collector-plugin-sdk.md) and [examples/collector](../examples/collector).
 
 ```bash
 go build -o example-collector ./examples/collector

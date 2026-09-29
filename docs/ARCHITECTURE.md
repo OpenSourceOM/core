@@ -74,7 +74,7 @@ See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings
 
 - Exposure, identity, and access edges
 - CVE enrichment tied to workload inventory
-- Rescans and query limits
+- Query limits
 - Self-hosted operability (read auth, health, scheduled scans, console)
 - Broader community rule packs (PCI and additional CIS mappings)
 - Cloud audit logs as graph context

@@ -36,7 +36,10 @@ var scanAWSCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return ingestScan(cmd.Context(), cfg, fmt.Sprintf("AWS account %s (%s)", collector.AccountID, cfg.AWSRegion), func(ctx context.Context) (graph.Batch, error) {
+		return ingestScan(cmd.Context(), cfg, fmt.Sprintf("AWS account %s (%s)", collector.AccountID, cfg.AWSRegion), []graph.Scope{{
+			AccountID: collector.AccountID,
+			Regions:   []string{cfg.AWSRegion, ""},
+		}}, func(ctx context.Context) (graph.Batch, error) {
 			return collector.Collect(ctx)
 		})
 	},
@@ -48,7 +51,9 @@ var scanAzureCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := loadConfig()
 		collector := azure.NewCollector(cfg.AzureSubscriptionID, cfg.AzureLocation)
-		return ingestScan(cmd.Context(), cfg, fmt.Sprintf("Azure subscription %s", cfg.AzureSubscriptionID), collector.Collect)
+		return ingestScan(cmd.Context(), cfg, fmt.Sprintf("Azure subscription %s", cfg.AzureSubscriptionID), []graph.Scope{{
+			AccountID: cfg.AzureSubscriptionID,
+		}}, collector.Collect)
 	},
 }
 
@@ -58,7 +63,9 @@ var scanGCPCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := loadConfig()
 		collector := gcp.NewCollector(cfg.GCPProjectID, cfg.GCPRegion)
-		return ingestScan(cmd.Context(), cfg, fmt.Sprintf("GCP project %s", cfg.GCPProjectID), collector.Collect)
+		return ingestScan(cmd.Context(), cfg, fmt.Sprintf("GCP project %s", cfg.GCPProjectID), []graph.Scope{{
+			AccountID: cfg.GCPProjectID,
+		}}, collector.Collect)
 	},
 }
 
@@ -72,7 +79,10 @@ var scanK8sCmd = &cobra.Command{
 		if cfg.K8sNamespace != "" {
 			label += " namespace " + cfg.K8sNamespace
 		}
-		return ingestScan(cmd.Context(), cfg, label, collector.Collect)
+		return ingestScan(cmd.Context(), cfg, label, []graph.Scope{{
+			AccountID: cfg.K8sCluster,
+			Namespace: cfg.K8sNamespace,
+		}}, collector.Collect)
 	},
 }
 
@@ -81,7 +91,7 @@ var pluginTimeout time.Duration
 var scanPluginCmd = &cobra.Command{
 	Use:   "plugin [--] <executable> [args...]",
 	Short: "Run an external collector plugin and ingest its graph batch",
-	Long: `Run a collector plugin and upsert the graph batch it writes to stdout.
+	Long: `Run a collector plugin and replace inventory for each account in the batch it writes to stdout.
 
 The executable inherits om's environment. On success, stdout must be one JSON
 object with "nodes" and "edges" (package sdk/collector). Diagnostics go to
@@ -94,7 +104,7 @@ stderr. Put plugin flags after -- so om does not parse them:
 		exe := args[0]
 		pluginArgs := args[1:]
 		label := fmt.Sprintf("plugin %s", filepath.Base(exe))
-		return ingestScan(cmd.Context(), cfg, label, func(ctx context.Context) (graph.Batch, error) {
+		return ingestScan(cmd.Context(), cfg, label, nil, func(ctx context.Context) (graph.Batch, error) {
 			runCtx, cancel := context.WithTimeout(ctx, pluginTimeout)
 			defer cancel()
 			return plugins.Run(runCtx, exe, pluginArgs)
@@ -114,11 +124,12 @@ var scanDemoCmd = &cobra.Command{
 		}
 		defer store.Close()
 
-		if err := store.DeleteByAccount(ctx, demo.AccountIDs()); err != nil {
-			return err
-		}
 		batch := demo.Collect()
-		if err := store.UpsertBatch(ctx, batch); err != nil {
+		scopes := make([]graph.Scope, 0, len(demo.AccountIDs()))
+		for _, accountID := range demo.AccountIDs() {
+			scopes = append(scopes, graph.Scope{AccountID: accountID})
+		}
+		if err := store.ReplaceInventory(ctx, scopes, batch); err != nil {
 			return err
 		}
 		fmt.Printf("Ingested %d nodes and %d edges from demo sample environment.\n", len(batch.Nodes), len(batch.Edges))
@@ -181,7 +192,7 @@ func propString(props map[string]any, key string) string {
 	return fmt.Sprint(value)
 }
 
-func ingestScan(ctx context.Context, cfg config.Config, label string, collect func(context.Context) (graph.Batch, error)) error {
+func ingestScan(ctx context.Context, cfg config.Config, label string, scopes []graph.Scope, collect func(context.Context) (graph.Batch, error)) error {
 	store, err := openGraphStore(ctx, cfg)
 	if err != nil {
 		return err
@@ -192,12 +203,31 @@ func ingestScan(ctx context.Context, cfg config.Config, label string, collect fu
 	if err != nil {
 		return err
 	}
-	if err := store.UpsertBatch(ctx, batch); err != nil {
+	if len(scopes) == 0 {
+		scopes = scopesFromBatch(batch)
+	}
+	if err := store.ReplaceInventory(ctx, scopes, batch); err != nil {
 		return err
 	}
 
 	fmt.Printf("Ingested %d nodes and %d edges from %s.\n", len(batch.Nodes), len(batch.Edges), label)
 	return nil
+}
+
+func scopesFromBatch(batch graph.Batch) []graph.Scope {
+	seen := map[string]struct{}{}
+	var scopes []graph.Scope
+	for _, node := range batch.Nodes {
+		if node.AccountID == "" {
+			continue
+		}
+		if _, ok := seen[node.AccountID]; ok {
+			continue
+		}
+		seen[node.AccountID] = struct{}{}
+		scopes = append(scopes, graph.Scope{AccountID: node.AccountID})
+	}
+	return scopes
 }
 
 func init() {

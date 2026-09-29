@@ -5,7 +5,7 @@
 //
 // A plugin is any executable. It inherits the environment of `om`, writes a
 // single graph batch JSON object to stdout, and sends diagnostics to stderr.
-// `om scan plugin` validates that batch and upserts it into the graph.
+// `om scan plugin` validates that batch and replaces inventory for each account it contains.
 //
 // Go plugins can implement [Collector] and call [Run] from main. Other
 // languages emit the same JSON. Node and edge type strings match graph schema

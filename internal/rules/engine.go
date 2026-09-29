@@ -91,12 +91,11 @@ func (e *Engine) RunAll(ctx context.Context) (RunResult, error) {
 		if err != nil {
 			return result, fmt.Errorf("rule %s: %w", rule.ID, err)
 		}
-		for _, match := range matches {
-			if err := e.persistFinding(ctx, rule, match); err != nil {
-				return result, err
-			}
-			result.FindingsCreated++
+		written, err := e.persistMatches(ctx, rule, matches)
+		if err != nil {
+			return result, err
 		}
+		result.FindingsCreated += written
 		result.Matches = append(result.Matches, matches...)
 	}
 	return result, nil
@@ -112,26 +111,42 @@ func (e *Engine) Run(ctx context.Context, ruleID string) (RunResult, error) {
 		if err != nil {
 			return result, err
 		}
-		for _, match := range matches {
-			if err := e.persistFinding(ctx, rule, match); err != nil {
-				return result, err
-			}
-			result.FindingsCreated++
+		written, err := e.persistMatches(ctx, rule, matches)
+		if err != nil {
+			return result, err
 		}
+		result.FindingsCreated = written
 		result.Matches = matches
 		return result, nil
 	}
 	return result, fmt.Errorf("unknown rule %q", ruleID)
 }
 
-func (e *Engine) persistFinding(ctx context.Context, rule Rule, match Match) error {
+func (e *Engine) persistMatches(ctx context.Context, rule Rule, matches []Match) (int, error) {
+	keep := make([]string, 0, len(matches))
+	for _, match := range matches {
+		findingID := findingNodeID(rule.ID, match.Resource.ID)
+		if err := e.persistFinding(ctx, rule, match, findingID); err != nil {
+			return 0, err
+		}
+		keep = append(keep, findingID)
+	}
+	if err := e.store.DeleteStaleRuleFindings(ctx, rule.ID, keep); err != nil {
+		return 0, err
+	}
+	return len(matches), nil
+}
+
+func findingNodeID(ruleID, resourceID string) string {
+	return fmt.Sprintf("finding:%s:%s", ruleID, resourceID)
+}
+
+func (e *Engine) persistFinding(ctx context.Context, rule Rule, match Match, findingID string) error {
 	score := match.Context.ScoreBoost(match.BaseScore)
 	description := match.Description
 	if reason := match.Context.RankReason(); reason != "" {
 		description += " " + reason
 	}
-	findingID := fmt.Sprintf("finding:%s:%s", rule.ID, match.Resource.ID)
-
 	batch := graph.Batch{
 		Nodes: []graph.Node{
 			{

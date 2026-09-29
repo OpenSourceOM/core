@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -43,6 +44,44 @@ func (s *Store) UpsertBatch(ctx context.Context, batch Batch) error {
 	}
 	defer tx.Rollback(ctx)
 
+	if err := upsertBatch(ctx, tx, batch); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// Scope is the inventory a scan replaces.
+//
+// An empty Regions list covers every region of AccountID. Pass the scanned
+// region and "" to replace one AWS region plus account-global IAM and S3
+// (those nodes are stored with an empty region) without deleting other regions.
+// Namespace, when set, limits replacement to Kubernetes nodes in that namespace.
+type Scope struct {
+	AccountID string
+	Regions   []string
+	Namespace string
+}
+
+// ReplaceInventory upserts batch, then deletes inventory in scopes that the
+// batch no longer contains. Finding nodes stay unless their affected resource
+// was removed. Rule evaluation removes CSPM findings that no longer match.
+func (s *Store) ReplaceInventory(ctx context.Context, scopes []Scope, batch Batch) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if err := upsertBatch(ctx, tx, batch); err != nil {
+		return err
+	}
+	if err := deleteAbsentInventory(ctx, tx, scopes, batch); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func upsertBatch(ctx context.Context, tx pgx.Tx, batch Batch) error {
 	for _, node := range batch.Nodes {
 		props, err := node.PropertiesJSON()
 		if err != nil {
@@ -81,8 +120,165 @@ func (s *Store) UpsertBatch(ctx context.Context, batch Batch) error {
 			return fmt.Errorf("upsert edge %s: %w", edge.ID, err)
 		}
 	}
+	return nil
+}
 
-	return tx.Commit(ctx)
+// scopeMatch is true when node n belongs to a scan scope row s.
+const scopeMatch = `
+s.account_id = n.account_id
+AND (s.all_regions OR n.region = s.region)
+AND (COALESCE(s.namespace, '') = '' OR COALESCE(n.properties->>'namespace', '') = s.namespace)`
+
+const scopeRows = `
+jsonb_to_recordset($1::jsonb) AS s(
+	account_id text,
+	region text,
+	all_regions boolean,
+	namespace text
+)`
+
+type scopeRecord struct {
+	AccountID  string `json:"account_id"`
+	Region     string `json:"region"`
+	AllRegions bool   `json:"all_regions"`
+	Namespace  string `json:"namespace"`
+}
+
+func scopeRecords(scopes []Scope) []scopeRecord {
+	var records []scopeRecord
+	for _, scope := range scopes {
+		if scope.AccountID == "" {
+			continue
+		}
+		if len(scope.Regions) == 0 {
+			records = append(records, scopeRecord{
+				AccountID:  scope.AccountID,
+				AllRegions: true,
+				Namespace:  scope.Namespace,
+			})
+			continue
+		}
+		seen := map[string]bool{}
+		for _, region := range scope.Regions {
+			if seen[region] {
+				continue
+			}
+			seen[region] = true
+			records = append(records, scopeRecord{
+				AccountID:  scope.AccountID,
+				Region:     region,
+				AllRegions: false,
+				Namespace:  scope.Namespace,
+			})
+		}
+	}
+	return records
+}
+
+func deleteAbsentInventory(ctx context.Context, tx pgx.Tx, scopes []Scope, batch Batch) error {
+	records := scopeRecords(scopes)
+	if len(records) == 0 {
+		return nil
+	}
+	scopeJSON, err := json.Marshal(records)
+	if err != nil {
+		return err
+	}
+
+	keepNodes := make([]string, len(batch.Nodes))
+	for i, node := range batch.Nodes {
+		keepNodes[i] = node.ID
+	}
+	sources := make([]string, len(batch.Edges))
+	targets := make([]string, len(batch.Edges))
+	edgeTypes := make([]string, len(batch.Edges))
+	for i, edge := range batch.Edges {
+		sources[i] = edge.SourceID
+		targets[i] = edge.TargetID
+		edgeTypes[i] = edge.Type
+	}
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM nodes n
+		WHERE n.type <> $2
+		  AND NOT (n.id = ANY($3::text[]))
+		  AND EXISTS (
+		    SELECT 1 FROM `+scopeRows+`
+		    WHERE `+scopeMatch+`
+		  )
+	`, string(scopeJSON), NodeFinding, keepNodes); err != nil {
+		return fmt.Errorf("delete absent inventory: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM edges e
+		WHERE e.type <> $2
+		  AND NOT EXISTS (
+		    SELECT 1
+		    FROM unnest($3::text[], $4::text[], $5::text[]) AS b(source_id, target_id, edge_type)
+		    WHERE b.source_id = e.source_id
+		      AND b.target_id = e.target_id
+		      AND b.edge_type = e.type
+		  )
+		  AND EXISTS (
+		    SELECT 1 FROM nodes n
+		    WHERE n.id IN (e.source_id, e.target_id)
+		      AND n.type <> $6
+		      AND n.account_id <> ''
+		      AND EXISTS (
+		        SELECT 1 FROM `+scopeRows+`
+		        WHERE `+scopeMatch+`
+		      )
+		  )
+		  AND NOT EXISTS (
+		    SELECT 1 FROM nodes n
+		    WHERE n.id IN (e.source_id, e.target_id)
+		      AND n.type <> $6
+		      AND n.account_id <> ''
+		      AND NOT EXISTS (
+		        SELECT 1 FROM `+scopeRows+`
+		        WHERE `+scopeMatch+`
+		      )
+		  )
+	`, string(scopeJSON), EdgeViolates, sources, targets, edgeTypes, NodeFinding); err != nil {
+		return fmt.Errorf("delete absent edges: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM nodes f
+		WHERE f.type = $2
+		  AND f.account_id IN (
+		    SELECT s.account_id
+		    FROM jsonb_to_recordset($1::jsonb) AS s(account_id text)
+		  )
+		  AND COALESCE(f.properties->>'affected_resource', '') <> ''
+		  AND NOT EXISTS (
+		    SELECT 1 FROM nodes t
+		    WHERE t.id = f.properties->>'affected_resource'
+		  )
+	`, string(scopeJSON), NodeFinding); err != nil {
+		return fmt.Errorf("delete orphan findings: %w", err)
+	}
+	return nil
+}
+
+// DeleteStaleRuleFindings removes CSPM findings for ruleID whose ids are not in
+// keepIDs. Findings from other rules and from CVE enrichment are left alone.
+func (s *Store) DeleteStaleRuleFindings(ctx context.Context, ruleID string, keepIDs []string) error {
+	if ruleID == "" {
+		return nil
+	}
+	if keepIDs == nil {
+		keepIDs = []string{}
+	}
+	_, err := s.pool.Exec(ctx, `
+		DELETE FROM nodes
+		WHERE type = $1
+		  AND properties->>'finding_type' = 'cspm'
+		  AND properties->>'rule_id' = $2
+		  AND NOT (id = ANY($3::text[]))
+	`, NodeFinding, ruleID, keepIDs)
+	return err
 }
 
 func (s *Store) Stats(ctx context.Context) (Stats, error) {
@@ -218,6 +414,9 @@ func (s *Store) ListFindings(ctx context.Context, limit int) ([]FindingView, err
 	return findings, rows.Err()
 }
 
+// DeleteByAccount removes every node for the given accounts, including findings.
+// Scans use ReplaceInventory so a rescan can drop inventory without wiping
+// findings that still apply.
 func (s *Store) DeleteByAccount(ctx context.Context, accountIDs []string) error {
 	if len(accountIDs) == 0 {
 		return nil
