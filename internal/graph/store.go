@@ -31,6 +31,11 @@ func (s *Store) Close() {
 	s.pool.Close()
 }
 
+// Ping reports whether the database connection pool can reach PostgreSQL.
+func (s *Store) Ping(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}
+
 func (s *Store) UpsertBatch(ctx context.Context, batch Batch) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
