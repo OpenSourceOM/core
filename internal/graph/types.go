@@ -76,6 +76,8 @@ type FindingView struct {
 	AffectedResourceID   string `json:"affected_resource_id,omitempty"`
 	AffectedResourceName string `json:"affected_resource_name,omitempty"`
 	AffectedResourceType string `json:"affected_resource_type,omitempty"`
+	// Path is the ordered node ids recorded on an attack-path finding.
+	Path []string `json:"path,omitempty"`
 }
 
 type GraphSnapshot struct {

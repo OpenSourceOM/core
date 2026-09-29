@@ -21,7 +21,7 @@ OpenSourceOM Core is the platform behind [opensourceom.org](https://opensourceom
 
 Traditional scanners flood you with CVEs and misconfigurations. OpenSourceOM connects the dots — showing which findings sit on paths from the internet to your sensitive data and privileged identities.
 
-> **Status:** Early development (Phase 3). CSPM rules, identity blast radius, Kubernetes ingest, exports, a collector plugin SDK, and a Helm chart are available. CVE findings follow package and image inventory. Datastores can carry a sensitivity mark from a tag or label. Current work is graph accuracy: attack-path findings, rule packs, and cloud audit ingest. See the [roadmap](./docs/ROADMAP.md).
+> **Status:** Early development (Phase 3). CSPM rules, identity blast radius, Kubernetes ingest, exports, a collector plugin SDK, and a Helm chart are available. CVE findings follow package and image inventory. Datastores can carry a sensitivity mark from a tag or label. A rules run writes an attack-path finding when a workload finding sits on a path to a datastore. Current work is cloud audit ingest, with further rule packs open for contributors. See the [roadmap](./docs/ROADMAP.md).
 
 ## Why this exists
 

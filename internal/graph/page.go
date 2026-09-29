@@ -274,6 +274,7 @@ func (s *Store) ListFindings(ctx context.Context, limit int, cursor string) (Fin
 		if targetType != nil {
 			view.AffectedResourceType = *targetType
 		}
+		view.Path = pathIDs(view.Finding.Properties)
 		findings = append(findings, view)
 		scores = append(scores, score)
 	}
