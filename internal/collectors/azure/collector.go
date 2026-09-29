@@ -6,7 +6,6 @@ package azure
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -51,44 +50,50 @@ func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
 		},
 	}
 
-	if err := c.collectVMs(ctx, cred, &batch); err != nil {
+	uses, err := c.collectVMs(ctx, cred, &batch)
+	if err != nil {
 		return graph.Batch{}, err
 	}
 	if err := c.collectStorage(ctx, cred, &batch); err != nil {
 		return graph.Batch{}, err
 	}
-	if err := c.collectRBAC(ctx, cred, &batch); err != nil {
+	assignments, err := c.collectRoleAssignments(ctx, cred, &batch)
+	if err != nil {
 		return graph.Batch{}, err
 	}
-
-	c.linkInternetWorkloadsToPublicDatastores(&batch)
+	roles, err := c.resolveRoleDefinitions(ctx, cred, assignments)
+	if err != nil {
+		return graph.Batch{}, err
+	}
+	c.linkAzureAccess(&batch, uses, assignments, roles)
 	return batch, nil
 }
 
-func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential, batch *graph.Batch) error {
+func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential, batch *graph.Batch) ([]azureIdentityUse, error) {
 	rgClient, err := armresources.NewResourceGroupsClient(c.SubscriptionID, cred, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	vmClient, err := armcompute.NewVirtualMachinesClient(c.SubscriptionID, cred, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	nicClient, err := armnetwork.NewInterfacesClient(c.SubscriptionID, cred, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	pipClient, err := armnetwork.NewPublicIPAddressesClient(c.SubscriptionID, cred, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	networkAPI := armNetworkAPI{nics: nicClient, pips: pipClient}
 
+	var uses []azureIdentityUse
 	pager := rgClient.NewListPager(nil)
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
-			return fmt.Errorf("list resource groups: %w", err)
+			return nil, fmt.Errorf("list resource groups: %w", err)
 		}
 		for _, rg := range page.Value {
 			if rg.Name == nil {
@@ -98,7 +103,7 @@ func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential,
 			for vmPager.More() {
 				vmPage, err := vmPager.NextPage(ctx)
 				if err != nil {
-					return fmt.Errorf("list vms: %w", err)
+					return nil, fmt.Errorf("list vms: %w", err)
 				}
 				for _, vm := range vmPage.Value {
 					if vm.Name == nil || vm.ID == nil {
@@ -112,7 +117,7 @@ func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential,
 
 					publicIP, err := vmPublicIP(ctx, networkAPI, vm)
 					if err != nil {
-						return err
+						return nil, err
 					}
 
 					batch.Nodes = append(batch.Nodes, graph.Node{
@@ -129,11 +134,12 @@ func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential,
 					})
 
 					c.addInternetEdge(batch, workloadID, publicIP)
+					uses = append(uses, vmIdentityUses(workloadID, vm.Identity)...)
 				}
 			}
 		}
 	}
-	return nil
+	return uses, nil
 }
 
 func (c *Collector) collectStorage(ctx context.Context, cred azcore.TokenCredential, batch *graph.Batch) error {
@@ -207,98 +213,77 @@ func (c *Collector) storagePublicAccess(ctx context.Context, client *armstorage.
 	return azureBlobPublic(allow, containers), nil
 }
 
-func (c *Collector) collectRBAC(ctx context.Context, cred azcore.TokenCredential, batch *graph.Batch) error {
+func (c *Collector) collectRoleAssignments(ctx context.Context, cred azcore.TokenCredential, batch *graph.Batch) ([]azureAssignment, error) {
 	client, err := armauthorization.NewRoleAssignmentsClient(c.SubscriptionID, cred, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	scope := fmt.Sprintf("/subscriptions/%s", c.SubscriptionID)
-	pager := client.NewListForScopePager(scope, nil)
-	for pager.More() {
-		page, err := pager.NextPage(ctx)
-		if err != nil {
-			return fmt.Errorf("list role assignments: %w", err)
-		}
-		for _, assignment := range page.Value {
-			if assignment.Properties == nil || assignment.Properties.RoleDefinitionID == nil {
-				continue
-			}
-			roleDefID := *assignment.Properties.RoleDefinitionID
-			principalID := safeString(assignment.Properties.PrincipalID)
-			if principalID == "" {
-				continue
-			}
-
-			adminAccess := roleLooksAdministrative(roleDefID)
-			identityID := c.nodeID("identity", principalID)
-			batch.Nodes = append(batch.Nodes, graph.Node{
-				ID:        identityID,
-				Type:      graph.NodeIdentity,
-				Name:      principalID,
-				Provider:  "azure",
-				Region:    c.Location,
-				AccountID: c.SubscriptionID,
-				Properties: graph.MustProperties(map[string]any{
-					"role_definition_id": roleDefID,
-					"admin_access":       adminAccess,
-				}),
-			})
+	scopes := []string{fmt.Sprintf("/subscriptions/%s", c.SubscriptionID)}
+	for _, node := range batch.Nodes {
+		if id, ok := datastoreResourceID(node); ok {
+			scopes = append(scopes, id)
 		}
 	}
-	return nil
+
+	seen := map[string]bool{}
+	var assignments []azureAssignment
+	for _, scope := range scopes {
+		pager := client.NewListForScopePager(scope, nil)
+		for pager.More() {
+			page, err := pager.NextPage(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("list role assignments at %s: %w", scope, err)
+			}
+			for _, item := range page.Value {
+				assignment, ok := assignmentFromRole(item)
+				if !ok {
+					continue
+				}
+				key := assignment.ID
+				if key == "" {
+					key = assignment.PrincipalID + "|" + assignment.RoleDefinitionID + "|" + assignment.Scope
+				}
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				assignments = append(assignments, assignment)
+			}
+		}
+	}
+	return assignments, nil
 }
 
-func (c *Collector) linkInternetWorkloadsToPublicDatastores(batch *graph.Batch) {
-	internetWorkloads := map[string]bool{}
-	for _, edge := range batch.Edges {
-		if edge.SourceID == graph.InternetNodeID && edge.Type == graph.EdgeReachable {
-			internetWorkloads[edge.TargetID] = true
-		}
-	}
-
-	var publicDatastores []graph.Node
-	for _, node := range batch.Nodes {
-		if node.Type != graph.NodeDatastore {
+func (c *Collector) resolveRoleDefinitions(ctx context.Context, cred azcore.TokenCredential, assignments []azureAssignment) (map[string]azureRole, error) {
+	roles := map[string]azureRole{}
+	var client *armauthorization.RoleDefinitionsClient
+	for _, assignment := range assignments {
+		guid := roleDefinitionGUID(assignment.RoleDefinitionID)
+		if guid == "" {
 			continue
 		}
-		public, _ := node.Properties["public_access"].(bool)
-		if public {
-			publicDatastores = append(publicDatastores, node)
-		}
-	}
-
-	for _, node := range batch.Nodes {
-		if node.Type != graph.NodeIdentity {
+		if _, ok := roles[guid]; ok {
 			continue
 		}
-		admin, _ := node.Properties["admin_access"].(bool)
-		if !admin {
+		if role, ok := builtinAzureRole(guid); ok {
+			roles[guid] = role
 			continue
 		}
-		for _, datastore := range publicDatastores {
-			batch.Edges = append(batch.Edges, graph.Edge{
-				ID:       c.edgeID(node.ID, datastore.ID, graph.EdgeCanAccess),
-				SourceID: node.ID,
-				TargetID: datastore.ID,
-				Type:     graph.EdgeCanAccess,
-			})
+		if client == nil {
+			var err error
+			client, err = armauthorization.NewRoleDefinitionsClient(cred, nil)
+			if err != nil {
+				return nil, err
+			}
 		}
+		resp, err := client.GetByID(ctx, assignment.RoleDefinitionID, nil)
+		if err != nil {
+			return nil, fmt.Errorf("get role definition %s: %w", assignment.RoleDefinitionID, err)
+		}
+		roles[guid] = azureRoleFromDefinition(resp.RoleDefinition)
 	}
-
-	for _, node := range batch.Nodes {
-		if node.Type != graph.NodeWorkload || !internetWorkloads[node.ID] {
-			continue
-		}
-		for _, datastore := range publicDatastores {
-			batch.Edges = append(batch.Edges, graph.Edge{
-				ID:       c.edgeID(node.ID, datastore.ID, graph.EdgeCanAccess),
-				SourceID: node.ID,
-				TargetID: datastore.ID,
-				Type:     graph.EdgeCanAccess,
-			})
-		}
-	}
+	return roles, nil
 }
 
 func (c *Collector) nodeID(kind, resource string) string {
@@ -307,17 +292,6 @@ func (c *Collector) nodeID(kind, resource string) string {
 
 func (c *Collector) edgeID(source, target, edgeType string) string {
 	return fmt.Sprintf("%s|%s|%s", source, target, edgeType)
-}
-
-func roleLooksAdministrative(roleDefinitionID string) bool {
-	lower := strings.ToLower(roleDefinitionID)
-	keywords := []string{"owner", "contributor", "admin", "useraccessadministrator"}
-	for _, kw := range keywords {
-		if strings.Contains(lower, kw) {
-			return true
-		}
-	}
-	return false
 }
 
 func safeString(v *string) string {
