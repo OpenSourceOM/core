@@ -34,7 +34,7 @@ func TestFormatPath(t *testing.T) {
 }
 
 func TestNamedQueriesAreProviderNeutral(t *testing.T) {
-	for _, name := range []string{"public-datastore", "admin-to-public-datastore", "admin-identities"} {
+	for _, name := range []string{"public-datastore", "admin-to-public-datastore", "admin-identities", "internet-to-sensitive-datastore"} {
 		if _, ok := graph.NamedQueries[name]; !ok {
 			t.Errorf("NamedQueries missing %q", name)
 		}
@@ -73,6 +73,34 @@ func TestInternetToDatastoreIncludesManagedDatabase(t *testing.T) {
 	want := []string{graph.InternetNodeID, rdsWorkloadID, rdsDatastoreID}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("path = %v, want %v", got, want)
+	}
+}
+
+func TestInternetToSensitiveDatastoreKeepsMarkedStores(t *testing.T) {
+	ctx := context.Background()
+	store := openQueryFixture(t)
+	if err := store.UpsertBatch(ctx, sensitivityFixture()); err != nil {
+		t.Fatalf("upsert fixture: %v", err)
+	}
+
+	querier := graph.NewQuerier(store)
+	all, err := querier.Run(ctx, "internet-to-datastore")
+	if err != nil {
+		t.Fatalf("Run(internet-to-datastore): %v", err)
+	}
+	if !sameIDs(pathEndIDs(all), []string{markedDatastoreID, unmarkedDatastoreID, blankDatastoreID}) {
+		t.Fatalf("unfiltered ends = %v, want marked, unmarked, and blank", pathEndIDs(all))
+	}
+
+	marked, err := querier.Run(ctx, "internet-to-sensitive-datastore")
+	if err != nil {
+		t.Fatalf("Run(internet-to-sensitive-datastore): %v", err)
+	}
+	if marked.Query != "internet-to-sensitive-datastore" {
+		t.Fatalf("Query = %q", marked.Query)
+	}
+	if !sameIDs(pathEndIDs(marked), []string{markedDatastoreID}) {
+		t.Fatalf("sensitive ends = %v, want only the marked datastore", pathEndIDs(marked))
 	}
 }
 
@@ -126,14 +154,19 @@ func TestPublicDatastoreIncludesS3AndGCS(t *testing.T) {
 }
 
 const (
-	s3PublicID     = "aws:111111111111:global:datastore:public-logs"
-	gcsPublicID    = "gcp:demo:us-central1:datastore:public-assets"
-	s3PrivateID    = "aws:111111111111:global:datastore:private-data"
-	ownerID        = "azure:00000000-0000-0000-0000-000000000000:global:identity:owner"
-	readerID       = "aws:111111111111:global:identity:admin-reader"
-	rdsWorkloadID  = "aws:111122223333:us-east-1:workload:i-web"
-	rdsDatastoreID = "aws:111122223333:us-east-1:datastore:prod"
-	rdsIsolatedID  = "aws:111122223333:us-east-1:datastore:isolated"
+	s3PublicID          = "aws:111111111111:global:datastore:public-logs"
+	gcsPublicID         = "gcp:demo:us-central1:datastore:public-assets"
+	s3PrivateID         = "aws:111111111111:global:datastore:private-data"
+	ownerID             = "azure:00000000-0000-0000-0000-000000000000:global:identity:owner"
+	readerID            = "aws:111111111111:global:identity:admin-reader"
+	rdsWorkloadID       = "aws:111122223333:us-east-1:workload:i-web"
+	rdsDatastoreID      = "aws:111122223333:us-east-1:datastore:prod"
+	rdsIsolatedID       = "aws:111122223333:us-east-1:datastore:isolated"
+	sensitiveWorkloadID = "aws:111122223333:us-east-1:workload:web"
+	markedDatastoreID   = "aws:111122223333:us-east-1:datastore:customers"
+	unmarkedDatastoreID = "aws:111122223333:us-east-1:datastore:logs"
+	blankDatastoreID    = "aws:111122223333:us-east-1:datastore:blank"
+	directDatastoreID   = "aws:111122223333:us-east-1:datastore:direct"
 )
 
 func managedDatabaseFixture() graph.Batch {
@@ -162,6 +195,54 @@ func managedDatabaseFixture() graph.Batch {
 			edge(graph.InternetNodeID, rdsWorkloadID, graph.EdgeReachable),
 			edge(rdsWorkloadID, rdsDatastoreID, graph.EdgeCanAccess),
 			edge(graph.InternetNodeID, s3PublicID, graph.EdgeReachable),
+		},
+	}
+}
+
+func sensitivityFixture() graph.Batch {
+	p := graph.MustProperties
+	edge := func(src, dst string) graph.Edge {
+		return graph.Edge{ID: src + "|" + dst + "|" + graph.EdgeCanAccess, SourceID: src, TargetID: dst, Type: graph.EdgeCanAccess}
+	}
+	reach := graph.Edge{
+		ID:       graph.InternetNodeID + "|" + sensitiveWorkloadID + "|" + graph.EdgeReachable,
+		SourceID: graph.InternetNodeID,
+		TargetID: sensitiveWorkloadID,
+		Type:     graph.EdgeReachable,
+	}
+	direct := graph.Edge{
+		ID:       graph.InternetNodeID + "|" + directDatastoreID + "|" + graph.EdgeReachable,
+		SourceID: graph.InternetNodeID,
+		TargetID: directDatastoreID,
+		Type:     graph.EdgeReachable,
+	}
+	return graph.Batch{
+		Nodes: []graph.Node{
+			{ID: graph.InternetNodeID, Type: graph.NodeInternet, Name: "Internet"},
+			{ID: sensitiveWorkloadID, Type: graph.NodeWorkload, Name: "web", Provider: "aws"},
+			{
+				ID: markedDatastoreID, Type: graph.NodeDatastore, Name: "customers", Provider: "aws",
+				Properties: p(map[string]any{"service": "s3", "sensitivity": "customer"}),
+			},
+			{
+				ID: unmarkedDatastoreID, Type: graph.NodeDatastore, Name: "logs", Provider: "aws",
+				Properties: p(map[string]any{"service": "s3"}),
+			},
+			{
+				ID: blankDatastoreID, Type: graph.NodeDatastore, Name: "blank", Provider: "aws",
+				Properties: p(map[string]any{"service": "s3", "sensitivity": "  "}),
+			},
+			{
+				ID: directDatastoreID, Type: graph.NodeDatastore, Name: "direct", Provider: "aws",
+				Properties: p(map[string]any{"service": "s3", "sensitivity": "customer"}),
+			},
+		},
+		Edges: []graph.Edge{
+			reach,
+			edge(sensitiveWorkloadID, markedDatastoreID),
+			edge(sensitiveWorkloadID, unmarkedDatastoreID),
+			edge(sensitiveWorkloadID, blankDatastoreID),
+			direct,
 		},
 	}
 }
@@ -355,6 +436,17 @@ func migrationsDir(t *testing.T) string {
 		t.Fatal("locate test file")
 	}
 	return filepath.Join(filepath.Dir(file), "..", "..", "migrations")
+}
+
+func pathEndIDs(result graph.PathResult) []string {
+	ids := make([]string, 0, len(result.Paths))
+	for _, path := range result.Paths {
+		if len(path) == 0 {
+			continue
+		}
+		ids = append(ids, path[len(path)-1].ID)
+	}
+	return ids
 }
 
 func pathStartIDs(result graph.PathResult) []string {

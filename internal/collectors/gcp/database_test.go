@@ -30,10 +30,13 @@ func TestCloudSQLFollowsNetworkPath(t *testing.T) {
 		Name: "prod", Region: "us-central1", DatabaseVersion: "POSTGRES_15",
 		ConnectionName: "proj:us-central1:prod",
 		IpAddresses:    []*sqladmin.IpMapping{{Type: "PRIVATE", IpAddress: "10.1.0.3"}},
-		Settings: &sqladmin.Settings{IpConfiguration: &sqladmin.IpConfiguration{
-			Ipv4Enabled:    false,
-			PrivateNetwork: "https://www.googleapis.com/compute/v1/projects/proj/global/networks/default",
-		}},
+		Settings: &sqladmin.Settings{
+			UserLabels: map[string]string{"data-class": "customer"},
+			IpConfiguration: &sqladmin.IpConfiguration{
+				Ipv4Enabled:    false,
+				PrivateNetwork: "https://www.googleapis.com/compute/v1/projects/proj/global/networks/default",
+			},
+		},
 	}, []gcpWorkloadNet{web, worker, other})
 	c.recordCloudSQL(&batch, &sqladmin.DatabaseInstance{
 		Name: "open", Region: "us-central1", DatabaseVersion: "MYSQL_8_0",
@@ -75,6 +78,12 @@ func TestCloudSQLFollowsNetworkPath(t *testing.T) {
 	assertPublic(prodID, false)
 	assertPublic(openID, true)
 	assertPublic(officeID, false)
+	if findNode(batch, prodID).Properties["sensitivity"] != "customer" {
+		t.Fatalf("prod sensitivity = %#v", findNode(batch, prodID).Properties["sensitivity"])
+	}
+	if _, ok := findNode(batch, openID).Properties["sensitivity"]; ok {
+		t.Fatal("unlabeled Cloud SQL instance should stay unmarked")
+	}
 
 	if !hasEdge(batch, web.ID, prodID, graph.EdgeCanAccess) || !hasEdge(batch, worker.ID, prodID, graph.EdgeCanAccess) {
 		t.Fatal("instances on the peered VPC should reach the private Cloud SQL instance")

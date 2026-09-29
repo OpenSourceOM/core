@@ -64,19 +64,23 @@ func (c *Collector) recordCloudSQL(batch *graph.Batch, instance *sqladmin.Databa
 		resourceID = instance.Name
 	}
 	public := cloudSQLPublic(instance)
+	props := map[string]any{
+		"resource_id":   resourceID,
+		"service":       "cloudsql",
+		"engine":        instance.DatabaseVersion,
+		"public_access": public,
+	}
+	if instance.Settings != nil {
+		graph.SetSensitivity(props, instance.Settings.UserLabels)
+	}
 	batch.Nodes = append(batch.Nodes, graph.Node{
-		ID:        nodeID,
-		Type:      graph.NodeDatastore,
-		Name:      instance.Name,
-		Provider:  "gcp",
-		Region:    region,
-		AccountID: c.ProjectID,
-		Properties: graph.MustProperties(map[string]any{
-			"resource_id":   resourceID,
-			"service":       "cloudsql",
-			"engine":        instance.DatabaseVersion,
-			"public_access": public,
-		}),
+		ID:         nodeID,
+		Type:       graph.NodeDatastore,
+		Name:       instance.Name,
+		Provider:   "gcp",
+		Region:     region,
+		AccountID:  c.ProjectID,
+		Properties: graph.MustProperties(props),
 	})
 	for _, workload := range workloads {
 		reason, ok := cloudSQLAllowsWorkload(instance, workload)

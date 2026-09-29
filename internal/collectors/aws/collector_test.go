@@ -227,6 +227,7 @@ type bucketPage struct {
 
 type fakeS3 struct {
 	pages map[string]bucketPage
+	tags  map[string][]s3types.Tag
 }
 
 func (f *fakeS3) ListBuckets(_ context.Context, params *s3.ListBucketsInput, _ ...func(*s3.Options)) (*s3.ListBucketsOutput, error) {
@@ -259,6 +260,14 @@ func (f *fakeS3) GetBucketEncryption(context.Context, *s3.GetBucketEncryptionInp
 
 func (f *fakeS3) GetBucketVersioning(context.Context, *s3.GetBucketVersioningInput, ...func(*s3.Options)) (*s3.GetBucketVersioningOutput, error) {
 	return nil, errors.New("not configured")
+}
+
+func (f *fakeS3) GetBucketTagging(_ context.Context, params *s3.GetBucketTaggingInput, _ ...func(*s3.Options)) (*s3.GetBucketTaggingOutput, error) {
+	tags, ok := f.tags[aws.ToString(params.Bucket)]
+	if !ok {
+		return nil, errors.New("no tags")
+	}
+	return &s3.GetBucketTaggingOutput{TagSet: tags}, nil
 }
 
 func TestAdminAccessFollowsPolicies(t *testing.T) {
@@ -628,6 +637,46 @@ func testInstance(id, publicIP, groupID string) ec2types.Instance {
 		instance.PublicIpAddress = aws.String(publicIP)
 	}
 	return instance
+}
+
+func TestS3CopiesSensitivityTag(t *testing.T) {
+	c := &Collector{Region: "us-east-1", AccountID: "111122223333"}
+	client := &fakeS3{
+		pages: map[string]bucketPage{
+			"": {items: []s3types.Bucket{
+				{Name: aws.String("customers")},
+				{Name: aws.String("logs")},
+				{Name: aws.String("classified")},
+			}},
+		},
+		tags: map[string][]s3types.Tag{
+			"customers": {
+				{Key: aws.String("data-class"), Value: aws.String("logs")},
+				{Key: aws.String("sensitivity"), Value: aws.String(" customer ")},
+			},
+			"classified": {
+				{Key: aws.String("Data-Class"), Value: aws.String("pii")},
+			},
+		},
+	}
+	var batch graph.Batch
+	if err := c.collectS3(context.Background(), client, &batch); err != nil {
+		t.Fatal(err)
+	}
+	assertSensitivity := func(name, want string, marked bool) {
+		t.Helper()
+		node, ok := nodeByID(batch, c.globalNodeID("datastore", name))
+		if !ok {
+			t.Fatalf("missing %s", name)
+		}
+		got, ok := node.Properties["sensitivity"].(string)
+		if marked != ok || got != want {
+			t.Fatalf("%s sensitivity = %q, %v; want %q, %v", name, got, ok, want, marked)
+		}
+	}
+	assertSensitivity("customers", "customer", true)
+	assertSensitivity("classified", "pii", true)
+	assertSensitivity("logs", "", false)
 }
 
 func testSecurityGroup(id string, open bool) ec2types.SecurityGroup {

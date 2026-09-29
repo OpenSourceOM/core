@@ -98,6 +98,7 @@ type s3API interface {
 	GetBucketPolicy(context.Context, *s3.GetBucketPolicyInput, ...func(*s3.Options)) (*s3.GetBucketPolicyOutput, error)
 	GetBucketEncryption(context.Context, *s3.GetBucketEncryptionInput, ...func(*s3.Options)) (*s3.GetBucketEncryptionOutput, error)
 	GetBucketVersioning(context.Context, *s3.GetBucketVersioningInput, ...func(*s3.Options)) (*s3.GetBucketVersioningOutput, error)
+	GetBucketTagging(context.Context, *s3.GetBucketTaggingInput, ...func(*s3.Options)) (*s3.GetBucketTaggingOutput, error)
 }
 
 // iamAPI is the IAM operations used to list roles, users, and their policies.
@@ -402,20 +403,34 @@ func (c *Collector) collectS3(ctx context.Context, client s3API, batch *graph.Ba
 				versioning = s3VersioningEnabled(verOut)
 			}
 
+			props := map[string]any{
+				"resource_id":         bucketName,
+				"service":             "s3",
+				"public_access":       publicAccess,
+				"public_access_block": publicAccessBlock,
+				"encryption":          encryption,
+				"versioning":          versioning,
+			}
+			// A missing tag set is not a scan error. The bucket stays unmarked.
+			if tagOut, err := client.GetBucketTagging(ctx, &s3.GetBucketTaggingInput{Bucket: bucket.Name}); err == nil && tagOut != nil {
+				tags := make(map[string]string, len(tagOut.TagSet))
+				for _, tag := range tagOut.TagSet {
+					key := aws.ToString(tag.Key)
+					if key == "" {
+						continue
+					}
+					tags[key] = aws.ToString(tag.Value)
+				}
+				graph.SetSensitivity(props, tags)
+			}
+
 			batch.Nodes = append(batch.Nodes, graph.Node{
-				ID:        bucketID,
-				Type:      graph.NodeDatastore,
-				Name:      bucketName,
-				Provider:  "aws",
-				AccountID: c.AccountID,
-				Properties: graph.MustProperties(map[string]any{
-					"resource_id":         bucketName,
-					"service":             "s3",
-					"public_access":       publicAccess,
-					"public_access_block": publicAccessBlock,
-					"encryption":          encryption,
-					"versioning":          versioning,
-				}),
+				ID:         bucketID,
+				Type:       graph.NodeDatastore,
+				Name:       bucketName,
+				Provider:   "aws",
+				AccountID:  c.AccountID,
+				Properties: graph.MustProperties(props),
 			})
 		}
 	}

@@ -11,11 +11,12 @@ import (
 )
 
 var NamedQueries = map[string]string{
-	"internet-to-workload":      "Paths from the internet to reachable workloads",
-	"internet-to-datastore":     "Paths from the internet through workloads to datastores",
-	"public-datastore":          "Datastores with public exposure indicators",
-	"admin-identities":          "Identities with broad administrative permissions",
-	"admin-to-public-datastore": "Public datastores linked to admin-capable identities",
+	"internet-to-workload":            "Paths from the internet to reachable workloads",
+	"internet-to-datastore":           "Paths from the internet through workloads to datastores",
+	"internet-to-sensitive-datastore": "Paths from the internet through workloads to datastores marked with sensitivity",
+	"public-datastore":                "Datastores with public exposure indicators",
+	"admin-identities":                "Identities with broad administrative permissions",
+	"admin-to-public-datastore":       "Public datastores linked to admin-capable identities",
 }
 
 // queryAliases keeps the Phase 0 S3 names working. They are not listed.
@@ -37,7 +38,9 @@ func (q *Querier) Run(ctx context.Context, name string) (PathResult, error) {
 	case "internet-to-workload":
 		return q.internetToWorkload(ctx)
 	case "internet-to-datastore":
-		return q.internetToDatastore(ctx)
+		return q.internetToDatastore(ctx, false)
+	case "internet-to-sensitive-datastore":
+		return q.internetToDatastore(ctx, true)
 	case "public-datastore":
 		return q.publicDatastores(ctx, name)
 	case "admin-identities":
@@ -112,7 +115,13 @@ func (q *Querier) internetToWorkload(ctx context.Context) (PathResult, error) {
 		paths, internetWorkloadCap, depthCut), nil
 }
 
-func (q *Querier) internetToDatastore(ctx context.Context) (PathResult, error) {
+func (q *Querier) internetToDatastore(ctx context.Context, sensitiveOnly bool) (PathResult, error) {
+	name := "internet-to-datastore"
+	summary := "Attack paths from the internet through workloads to datastores"
+	if sensitiveOnly {
+		name = "internet-to-sensitive-datastore"
+		summary = "Attack paths from the internet through workloads to datastores marked with sensitivity"
+	}
 	rows, err := q.store.pool.Query(ctx, `
 		WITH RECURSIVE paths AS (
 			SELECT
@@ -144,8 +153,12 @@ func (q *Querier) internetToDatastore(ctx context.Context) (PathResult, error) {
 			FROM unnest(p.node_ids) AS nid
 			INNER JOIN nodes w ON w.id = nid AND w.type = $3
 		  )
+		  AND (
+			$6 = FALSE
+			OR btrim(COALESCE(n.properties->>'sensitivity', '')) <> ''
+		  )
 		LIMIT $5
-	`, InternetNodeID, NodeDatastore, NodeWorkload, internetDatastoreDepth, internetDatastoreCap+1)
+	`, InternetNodeID, NodeDatastore, NodeWorkload, internetDatastoreDepth, internetDatastoreCap+1, sensitiveOnly)
 	if err != nil {
 		return PathResult{}, err
 	}
@@ -159,9 +172,7 @@ func (q *Querier) internetToDatastore(ctx context.Context) (PathResult, error) {
 	if err != nil {
 		return PathResult{}, err
 	}
-	return finishPaths("internet-to-datastore",
-		"Attack paths from the internet through workloads to datastores",
-		paths, internetDatastoreCap, depthCut), nil
+	return finishPaths(name, summary, paths, internetDatastoreCap, depthCut), nil
 }
 
 func (q *Querier) publicDatastores(ctx context.Context, queryName string) (PathResult, error) {

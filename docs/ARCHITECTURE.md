@@ -34,7 +34,7 @@ SPDX-License-Identifier: Apache-2.0
 | **Collectors** | `internal/collectors/` | AWS, Azure, GCP, Kubernetes, demo; RDS, Azure SQL, and Cloud SQL are datastores; AWS emits CIS pack properties |
 | **Plugin SDK** | `sdk/collector`, `internal/plugins/` | External executables; `om scan plugin` |
 | **Graph store** | `internal/graph/`, `migrations/` | PostgreSQL `nodes` + `edges` |
-| **Path queries** | `internal/graph/query.go` | Named queries including `internet-to-datastore` |
+| **Path queries** | `internal/graph/query.go` | Named queries including `internet-to-datastore` and `internet-to-sensitive-datastore` |
 | **Blast radius** | `internal/graph/blastradius.go` | Reachability from identities over `CAN_ACCESS` / `ASSUMES` |
 | **CSPM rules** | `internal/rules/` | Built-in policies plus embedded YAML packs |
 | **CVE enrichment** | `internal/enrichment/` | Match workload packages and images, then NVD or a catalog for CVSS |
@@ -76,7 +76,7 @@ Making the skeleton true, in order:
 
 - Self-hosted operability (console). Read routes honor the API secret, and the Helm chart schedules collectors when credentials are set.
 - CVE enrichment tied to workload inventory. `om enrich cve` writes a finding only when a workload package or image matches.
-- Crown-jewel mark on datastores
+- Crown-jewel mark on datastores. A tag or label named `sensitivity` or `data-class` is stored on the datastore, and `internet-to-sensitive-datastore` keeps only those paths.
 - Attack path as the finding
 - Cloud audit logs as graph context
 

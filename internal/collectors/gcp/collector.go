@@ -266,16 +266,13 @@ func (c *Collector) collectStorage(ctx context.Context, batch *graph.Batch) ([]g
 		}
 		datastoreID := c.nodeID(c.Region, "datastore", bucketAttrs.Name)
 		batch.Nodes = append(batch.Nodes, graph.Node{
-			ID:        datastoreID,
-			Type:      graph.NodeDatastore,
-			Name:      bucketAttrs.Name,
-			Provider:  "gcp",
-			Region:    bucketAttrs.Location,
-			AccountID: c.ProjectID,
-			Properties: graph.MustProperties(map[string]any{
-				"resource_id":   bucketAttrs.Name,
-				"public_access": publicAccess,
-			}),
+			ID:         datastoreID,
+			Type:       graph.NodeDatastore,
+			Name:       bucketAttrs.Name,
+			Provider:   "gcp",
+			Region:     bucketAttrs.Location,
+			AccountID:  c.ProjectID,
+			Properties: graph.MustProperties(gcsProperties(bucketAttrs.Name, publicAccess, bucketAttrs.Labels)),
 		})
 	}
 	return bindings, nil
@@ -415,4 +412,13 @@ func zoneFromPath(path string) string {
 		return "unknown"
 	}
 	return parts[len(parts)-1]
+}
+
+func gcsProperties(name string, publicAccess bool, labels map[string]string) map[string]any {
+	props := map[string]any{
+		"resource_id":   name,
+		"public_access": publicAccess,
+	}
+	graph.SetSensitivity(props, labels)
+	return props
 }

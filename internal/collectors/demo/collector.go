@@ -106,6 +106,7 @@ func Collect() graph.Batch {
 					"public_access_block":    "n/a",
 					"ingress_security_group": "sg-web",
 					"ingress_port":           5432,
+					"sensitivity":            "customer",
 				}),
 			},
 			{
