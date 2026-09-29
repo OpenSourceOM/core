@@ -68,7 +68,7 @@ func TestCollectFollowsPagination(t *testing.T) {
 	if err := c.collectSecurityGroups(ctx, ec2Client, &batch, groups); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.collectEC2(ctx, ec2Client, &batch, groups, &profiles); err != nil {
+	if err := c.collectEC2(ctx, ec2Client, &batch, groups, &profiles, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.collectS3(ctx, buckets, &batch); err != nil {
@@ -171,7 +171,7 @@ func collectRegion(t *testing.T, region string) graph.Batch {
 		t.Fatal(err)
 	}
 	var profiles []instanceProfileUse
-	if err := c.collectEC2(ctx, ec2Client, &batch, groups, &profiles); err != nil {
+	if err := c.collectEC2(ctx, ec2Client, &batch, groups, &profiles, nil); err != nil {
 		t.Fatal(err)
 	}
 	return batch

@@ -20,7 +20,9 @@ Cloud and platform ingestion plugins. Each collector normalizes provider APIs in
 
 The **demo** collector loads a fixed environment (internet-exposed web tier, production database, public/private buckets, admin vs app identities, public Kubernetes service). Use it to exercise CSPM packs without cloud credentials.
 
-The **AWS** collector emits properties the CIS pack matches on: `open_ingress`, `imdsv2`, `public_ip`, S3 `encryption` / `versioning` / `public_access_block`, and IAM user `mfa` / `unused_access_keys`.
+The **AWS** collector emits properties the CIS pack matches on: `open_ingress`, `imdsv2`, `public_ip`, S3 `encryption` / `versioning` / `public_access_block`, and IAM user `mfa` / `unused_access_keys`. It also records RDS and Aurora instances as datastores.
+
+The **Azure** collector records logical SQL servers, and the **GCP** collector records Cloud SQL instances. A workload gets `CAN_ACCESS` only when a security group, firewall, or VPC path allows it.
 
 ## Interface
 

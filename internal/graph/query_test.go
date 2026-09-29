@@ -48,6 +48,30 @@ func TestNamedQueriesAreProviderNeutral(t *testing.T) {
 	}
 }
 
+func TestInternetToDatastoreIncludesManagedDatabase(t *testing.T) {
+	ctx := context.Background()
+	store := openQueryFixture(t)
+	if err := store.UpsertBatch(ctx, managedDatabaseFixture()); err != nil {
+		t.Fatalf("upsert fixture: %v", err)
+	}
+
+	result, err := graph.NewQuerier(store).Run(ctx, "internet-to-datastore")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(result.Paths) != 1 {
+		t.Fatalf("paths = %d, want the one managed-database path", len(result.Paths))
+	}
+	var got []string
+	for _, node := range result.Paths[0] {
+		got = append(got, node.ID)
+	}
+	want := []string{graph.InternetNodeID, rdsWorkloadID, rdsDatastoreID}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("path = %v, want %v", got, want)
+	}
+}
+
 func TestPublicDatastoreIncludesS3AndGCS(t *testing.T) {
 	ctx := context.Background()
 	store := openQueryFixture(t)
@@ -98,12 +122,45 @@ func TestPublicDatastoreIncludesS3AndGCS(t *testing.T) {
 }
 
 const (
-	s3PublicID  = "aws:111111111111:global:datastore:public-logs"
-	gcsPublicID = "gcp:demo:us-central1:datastore:public-assets"
-	s3PrivateID = "aws:111111111111:global:datastore:private-data"
-	ownerID     = "azure:00000000-0000-0000-0000-000000000000:global:identity:owner"
-	readerID    = "aws:111111111111:global:identity:admin-reader"
+	s3PublicID     = "aws:111111111111:global:datastore:public-logs"
+	gcsPublicID    = "gcp:demo:us-central1:datastore:public-assets"
+	s3PrivateID    = "aws:111111111111:global:datastore:private-data"
+	ownerID        = "azure:00000000-0000-0000-0000-000000000000:global:identity:owner"
+	readerID       = "aws:111111111111:global:identity:admin-reader"
+	rdsWorkloadID  = "aws:111122223333:us-east-1:workload:i-web"
+	rdsDatastoreID = "aws:111122223333:us-east-1:datastore:prod"
+	rdsIsolatedID  = "aws:111122223333:us-east-1:datastore:isolated"
 )
+
+func managedDatabaseFixture() graph.Batch {
+	p := graph.MustProperties
+	edge := func(src, dst, typ string) graph.Edge {
+		return graph.Edge{ID: src + "|" + dst + "|" + typ, SourceID: src, TargetID: dst, Type: typ}
+	}
+	return graph.Batch{
+		Nodes: []graph.Node{
+			{ID: graph.InternetNodeID, Type: graph.NodeInternet, Name: "Internet"},
+			{ID: rdsWorkloadID, Type: graph.NodeWorkload, Name: "web", Provider: "aws"},
+			{
+				ID: rdsDatastoreID, Type: graph.NodeDatastore, Name: "prod", Provider: "aws",
+				Properties: p(map[string]any{"service": "rds", "public_access": false, "engine": "postgres"}),
+			},
+			{
+				ID: rdsIsolatedID, Type: graph.NodeDatastore, Name: "isolated", Provider: "aws",
+				Properties: p(map[string]any{"service": "rds", "public_access": true, "engine": "postgres"}),
+			},
+			{
+				ID: s3PublicID, Type: graph.NodeDatastore, Name: "public-logs", Provider: "aws",
+				Properties: p(map[string]any{"service": "s3", "public_access": true}),
+			},
+		},
+		Edges: []graph.Edge{
+			edge(graph.InternetNodeID, rdsWorkloadID, graph.EdgeReachable),
+			edge(rdsWorkloadID, rdsDatastoreID, graph.EdgeCanAccess),
+			edge(graph.InternetNodeID, s3PublicID, graph.EdgeReachable),
+		},
+	}
+}
 
 func publicDatastoreFixture() graph.Batch {
 	access := func(target string) graph.Edge {

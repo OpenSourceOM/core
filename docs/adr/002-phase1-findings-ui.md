@@ -37,14 +37,14 @@ Phase 0 delivered ingest, storage, and basic path queries. Phase 1 needs priorit
 
 | Provider | Resources | CLI |
 |----------|-----------|-----|
-| Azure | VMs, storage accounts, subscription RBAC | `om scan azure` |
-| GCP | GCE instances, GCS buckets, service accounts | `om scan gcp` |
+| Azure | VMs, storage accounts, Azure SQL servers, subscription RBAC | `om scan azure` |
+| GCP | GCE instances, GCS buckets, Cloud SQL, service accounts | `om scan gcp` |
 
 Auth uses each cloud's default credential chain (`DefaultAzureCredential`, GCP ADC).
 
 ## Consequences
 
-- Heuristic edges and default Log4Shell CVE for demo enrichment were placeholders. Azure and GCP `CAN_ACCESS` now follow role-assignment scope and IAM bindings; the same-account link from every internet-facing workload to every public datastore has been removed. `REACHABLE` for those clouds requires an internet path and a firewall or NSG allow, including a private instance behind a public load balancer. The Log4Shell default remains a placeholder.
+- Heuristic edges and default Log4Shell CVE for demo enrichment were placeholders. Azure and GCP `CAN_ACCESS` for object storage now follow role-assignment scope and IAM bindings; the same-account link from every internet-facing workload to every public datastore has been removed. Managed-database `CAN_ACCESS` follows the network path described in [ADR 001](./001-graph-schema-v0.md). `REACHABLE` for those clouds requires an internet path and a firewall or NSG allow, including a private instance behind a public load balancer. The Log4Shell default remains a placeholder.
 - Azure VM public IP detection follows the NIC to the address. A public IP with no NSG is reachable. A public IP whose NSG or subnet NSG does not allow the internet is not. GCP sets `REACHABLE` only when a public address or external load balancer is also allowed by a firewall rule.
 - UI is static HTML/JS embedded in Go — a dedicated frontend package may split out later.
 

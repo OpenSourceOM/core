@@ -67,6 +67,10 @@ func TestGCPAdminComesFromProjectIAM(t *testing.T) {
 	batch := graph.Batch{Nodes: []graph.Node{
 		{ID: c.nodeID("us-central1", "datastore", "logs"), Type: graph.NodeDatastore, Name: "logs"},
 		{ID: c.nodeID("us-central1", "datastore", "other"), Type: graph.NodeDatastore, Name: "other"},
+		{
+			ID: c.nodeID("us-central1", "datastore", "prod"), Type: graph.NodeDatastore, Name: "prod",
+			Properties: map[string]any{"service": "cloudsql"},
+		},
 	}}
 	email := "admin@proj.iam.gserviceaccount.com"
 	c.linkGCPAccess(&batch, []gcpPrincipal{{Email: email, UniqueID: "222"}}, nil, nil)
@@ -87,6 +91,9 @@ func TestGCPAdminComesFromProjectIAM(t *testing.T) {
 	}
 	if !hasEdge(batch, identity.ID, c.nodeID("us-central1", "datastore", "other"), graph.EdgeCanAccess) {
 		t.Fatal("project owner should reach other")
+	}
+	if hasEdge(batch, identity.ID, c.nodeID("us-central1", "datastore", "prod"), graph.EdgeCanAccess) {
+		t.Fatal("project owner storage access should not reach Cloud SQL")
 	}
 }
 

@@ -136,10 +136,17 @@ func TestLinkAzureAccessOneStorageAccount(t *testing.T) {
 func TestLinkAzureAccessAdminFromRoleNotGUID(t *testing.T) {
 	c := NewCollector("sub", "eastus")
 	logsResource := "/subscriptions/SUB/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/logs"
-	batch := graph.Batch{Nodes: []graph.Node{{
-		ID: c.nodeID("datastore", "logs"), Type: graph.NodeDatastore, Name: "logs",
-		Properties: map[string]any{"resource_id": logsResource, "public_access": false},
-	}}}
+	sqlResourceID := "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Sql/servers/prod"
+	batch := graph.Batch{Nodes: []graph.Node{
+		{
+			ID: c.nodeID("datastore", "logs"), Type: graph.NodeDatastore, Name: "logs",
+			Properties: map[string]any{"resource_id": logsResource, "public_access": false},
+		},
+		{
+			ID: c.nodeID("datastore", "prod"), Type: graph.NodeDatastore, Name: "prod",
+			Properties: map[string]any{"resource_id": sqlResourceID, "service": "sql", "public_access": false},
+		},
+	}}
 	ownerID := "/subscriptions/sub/providers/Microsoft.Authorization/roleDefinitions/" + azureRoleOwner
 	readerID := "/subscriptions/sub/providers/Microsoft.Authorization/roleDefinitions/" + azureRoleReader
 	owner, _ := builtinAzureRole(azureRoleOwner)
@@ -161,6 +168,9 @@ func TestLinkAzureAccessAdminFromRoleNotGUID(t *testing.T) {
 	}
 	if !hasEdge(batch, identity.ID, c.nodeID("datastore", "logs"), graph.EdgeCanAccess) {
 		t.Fatal("subscription Owner should reach the storage account, including a private one")
+	}
+	if hasEdge(batch, identity.ID, c.nodeID("datastore", "prod"), graph.EdgeCanAccess) {
+		t.Fatal("subscription Owner storage access should not reach Azure SQL")
 	}
 }
 

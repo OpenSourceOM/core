@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
@@ -64,17 +65,21 @@ func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
 
 	securityGroups := map[string]ec2types.SecurityGroup{}
 	var profiles []instanceProfileUse
+	var networks []workloadNetwork
 
 	if err := c.collectSecurityGroups(ctx, ec2Client, &batch, securityGroups); err != nil {
 		return graph.Batch{}, err
 	}
-	if err := c.collectEC2(ctx, ec2Client, &batch, securityGroups, &profiles); err != nil {
+	if err := c.collectEC2(ctx, ec2Client, &batch, securityGroups, &profiles, &networks); err != nil {
 		return graph.Batch{}, err
 	}
 	if err := c.collectIAM(ctx, iamClient, &batch); err != nil {
 		return graph.Batch{}, err
 	}
 	if err := c.collectS3(ctx, s3Client, &batch); err != nil {
+		return graph.Batch{}, err
+	}
+	if err := c.collectRDS(ctx, rds.NewFromConfig(cfg), &batch, securityGroups, networks); err != nil {
 		return graph.Batch{}, err
 	}
 	if err := c.linkInstanceProfileAccess(ctx, iamClient, &batch, profiles); err != nil {
@@ -147,7 +152,7 @@ func (c *Collector) collectSecurityGroups(ctx context.Context, client ec2.Descri
 	return nil
 }
 
-func (c *Collector) collectEC2(ctx context.Context, client ec2.DescribeInstancesAPIClient, batch *graph.Batch, groups map[string]ec2types.SecurityGroup, profiles *[]instanceProfileUse) error {
+func (c *Collector) collectEC2(ctx context.Context, client ec2.DescribeInstancesAPIClient, batch *graph.Batch, groups map[string]ec2types.SecurityGroup, profiles *[]instanceProfileUse, networks *[]workloadNetwork) error {
 	paginator := ec2.NewDescribeInstancesPaginator(client, &ec2.DescribeInstancesInput{})
 	for paginator.HasMorePages() {
 		out, err := paginator.NextPage(ctx)
@@ -192,9 +197,13 @@ func (c *Collector) collectEC2(ctx context.Context, client ec2.DescribeInstances
 				}
 
 				var attached []ec2types.SecurityGroup
+				var groupIDs []string
 				viaGroup := ""
 				for _, sgRef := range instance.SecurityGroups {
 					sgID := aws.ToString(sgRef.GroupId)
+					if sgID != "" {
+						groupIDs = append(groupIDs, sgID)
+					}
 					sgNodeID := c.nodeID("network", sgID)
 					batch.Edges = append(batch.Edges, graph.Edge{
 						ID:       c.edgeID(workloadID, sgNodeID, graph.EdgeAffects),
@@ -210,6 +219,15 @@ func (c *Collector) collectEC2(ctx context.Context, client ec2.DescribeInstances
 					if viaGroup == "" && securityGroupAllowsInternetIngress(sg) {
 						viaGroup = sgID
 					}
+				}
+				if networks != nil {
+					*networks = append(*networks, workloadNetwork{
+						id:        workloadID,
+						name:      name,
+						vpcID:     aws.ToString(instance.VpcId),
+						privateIP: aws.ToString(instance.PrivateIpAddress),
+						groupIDs:  groupIDs,
+					})
 				}
 				if instanceInternetReachable(instance, attached) {
 					batch.Edges = append(batch.Edges, graph.Edge{
