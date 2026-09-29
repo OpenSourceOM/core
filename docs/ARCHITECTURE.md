@@ -74,8 +74,6 @@ See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings
 
 Making the skeleton true, in order:
 
-- Exposure and identity edges
-- Query limits
 - Self-hosted operability (read auth, health, scheduled scans, console)
 - CVE enrichment tied to workload inventory
 - Crown-jewel mark on datastores

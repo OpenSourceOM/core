@@ -39,12 +39,10 @@ High-level plan for OpenSourceOM core. Timelines are approximate and community-d
 - [x] Sample environment (`om scan demo`)
 - [ ] Broader community rule packs (PCI and additional CIS mappings) — [#10](https://github.com/OpenSourceOM/core/issues/10)
 
-Phases 0–2 shipped the walking skeleton. Current work is making that skeleton true: exposure and identity edges that match the cloud, findings that match installed software, and the attack path as the thing an operator fixes.
+Phases 0–2 shipped the walking skeleton. Exposure and identity edges now follow the cloud and Kubernetes. Current work is self-hosted operability, then findings that match installed software, and the attack path as the thing an operator fixes.
 
 Correctness and operability come first:
 
-- **Exposure and identity edges** — [#11](https://github.com/OpenSourceOM/core/issues/11), [#25](https://github.com/OpenSourceOM/core/issues/25)
-- **Query limits** — [#20](https://github.com/OpenSourceOM/core/issues/20)
 - **Self-hosted operability** — [#22](https://github.com/OpenSourceOM/core/issues/22), [#32](https://github.com/OpenSourceOM/core/issues/32), [#34](https://github.com/OpenSourceOM/core/issues/34)
 
 The path, in order:
