@@ -63,7 +63,7 @@ Synthetic nodes use stable global IDs (e.g. `internet:global`).
 - **Simple to operate:** Single Postgres instance, no graph DB dependency in Phase 0.
 - **Extensible:** New node/edge types and properties can be added without breaking existing rows.
 - **Limitations:** Recursive path queries are SQL-based and capped (depth 6); not suitable for very large graphs without indexing and query optimization in later phases.
-- **Heuristics:** AWS `admin_access` follows attached and inline policies: an allow of `*` on `*`, or the AWS-managed `AdministratorAccess` policy. Deny statements, conditions, permission boundaries, and group policies are not evaluated. Azure and GCP admin detection remains a heuristic.
+- **Heuristics:** AWS `admin_access` follows attached and inline policies: an allow of `*` on `*`, or the AWS-managed `AdministratorAccess` policy. Deny statements, conditions, permission boundaries, and group policies are not evaluated. Azure `admin_access` is Owner, Contributor, User Access Administrator, or a custom role whose actions are `*` or include `Microsoft.Authorization/roleAssignments/write`. GCP `admin_access` is `roles/owner`, `roles/editor`, `roles/resourcemanager.projectIamAdmin`, or a custom role that includes `resourcemanager.projects.setIamPolicy`. Azure `CAN_ACCESS` follows role-assignment scope. GCP `CAN_ACCESS` follows project and bucket IAM. Conditional assignments and bindings are not treated as access. Azure and GCP `REACHABLE` still ignores firewall rules.
 
 ## References
 
