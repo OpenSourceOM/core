@@ -50,11 +50,14 @@ func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
 		},
 	}
 
-	uses, err := c.collectVMs(ctx, cred, &batch)
+	uses, networks, err := c.collectVMs(ctx, cred, &batch)
 	if err != nil {
 		return graph.Batch{}, err
 	}
 	if err := c.collectStorage(ctx, cred, &batch); err != nil {
+		return graph.Batch{}, err
+	}
+	if err := c.collectSQL(ctx, cred, &batch, networks); err != nil {
 		return graph.Batch{}, err
 	}
 	assignments, err := c.collectRoleAssignments(ctx, cred, &batch)
@@ -69,35 +72,35 @@ func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
 	return batch, nil
 }
 
-func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential, batch *graph.Batch) ([]azureIdentityUse, error) {
+func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential, batch *graph.Batch) ([]azureIdentityUse, []azureWorkloadNet, error) {
 	rgClient, err := armresources.NewResourceGroupsClient(c.SubscriptionID, cred, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	vmClient, err := armcompute.NewVirtualMachinesClient(c.SubscriptionID, cred, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	nicClient, err := armnetwork.NewInterfacesClient(c.SubscriptionID, cred, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	pipClient, err := armnetwork.NewPublicIPAddressesClient(c.SubscriptionID, cred, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	networkAPI := armNetworkAPI{nics: nicClient, pips: pipClient}
 	nsgs, err := c.listSecurityGroups(ctx, cred)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	lbs, err := c.listLoadBalancers(ctx, cred)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	vnets, err := c.listVirtualNetworks(ctx, cred)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	nsgByID := indexSecurityGroups(nsgs)
 	lbTargets := azurePublicLBTargets(lbs)
@@ -105,11 +108,12 @@ func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential,
 	seenNetwork := map[string]struct{}{}
 
 	var uses []azureIdentityUse
+	var networks []azureWorkloadNet
 	pager := rgClient.NewListPager(nil)
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("list resource groups: %w", err)
+			return nil, nil, fmt.Errorf("list resource groups: %w", err)
 		}
 		for _, rg := range page.Value {
 			if rg.Name == nil {
@@ -119,7 +123,7 @@ func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential,
 			for vmPager.More() {
 				vmPage, err := vmPager.NextPage(ctx)
 				if err != nil {
-					return nil, fmt.Errorf("list vms: %w", err)
+					return nil, nil, fmt.Errorf("list vms: %w", err)
 				}
 				for _, vm := range vmPage.Value {
 					if vm.Name == nil || vm.ID == nil {
@@ -133,15 +137,27 @@ func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential,
 
 					nics, err := readVMNetwork(ctx, networkAPI, vm, subnetNSG)
 					if err != nil {
-						return nil, err
+						return nil, nil, err
 					}
 					publicIP := ""
+					var publicIPs []string
+					var subnetIDs []string
 					for _, nic := range nics {
 						if nic.PublicIP != "" {
-							publicIP = nic.PublicIP
-							break
+							if publicIP == "" {
+								publicIP = nic.PublicIP
+							}
+							publicIPs = append(publicIPs, nic.PublicIP)
+						}
+						if nic.SubnetID != "" {
+							subnetIDs = append(subnetIDs, nic.SubnetID)
 						}
 					}
+					networks = append(networks, azureWorkloadNet{
+						WorkloadID: workloadID,
+						PublicIPs:  publicIPs,
+						SubnetIDs:  subnetIDs,
+					})
 
 					batch.Nodes = append(batch.Nodes, graph.Node{
 						ID:        workloadID,
@@ -157,14 +173,14 @@ func (c *Collector) collectVMs(ctx context.Context, cred azcore.TokenCredential,
 					})
 
 					if err := c.attachAzureExposure(batch, workloadID, nics, nsgByID, lbTargets, seenNetwork); err != nil {
-						return nil, err
+						return nil, nil, err
 					}
 					uses = append(uses, vmIdentityUses(workloadID, vm.Identity)...)
 				}
 			}
 		}
 	}
-	return uses, nil
+	return uses, networks, nil
 }
 
 func (c *Collector) listSecurityGroups(ctx context.Context, cred azcore.TokenCredential) ([]*armnetwork.SecurityGroup, error) {

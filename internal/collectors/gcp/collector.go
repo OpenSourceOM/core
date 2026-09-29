@@ -46,7 +46,7 @@ func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
 		},
 	}
 
-	uses, err := c.collectInstances(ctx, &batch)
+	uses, networks, err := c.collectInstances(ctx, &batch)
 	if err != nil {
 		return graph.Batch{}, err
 	}
@@ -66,14 +66,17 @@ func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
 	if err := c.fillCustomRolePermissions(ctx, bindings); err != nil {
 		return graph.Batch{}, err
 	}
+	if err := c.collectCloudSQL(ctx, &batch, networks); err != nil {
+		return graph.Batch{}, err
+	}
 	c.linkGCPAccess(&batch, accounts, uses, bindings)
 	return batch, nil
 }
 
-func (c *Collector) collectInstances(ctx context.Context, batch *graph.Batch) ([]gcpInstanceSA, error) {
+func (c *Collector) collectInstances(ctx context.Context, batch *graph.Batch) ([]gcpInstanceSA, []gcpWorkloadNet, error) {
 	service, err := compute.NewService(ctx, option.WithScopes(compute.CloudPlatformScope))
 	if err != nil {
-		return nil, fmt.Errorf("compute client: %w", err)
+		return nil, nil, fmt.Errorf("compute client: %w", err)
 	}
 
 	var instances []scopedInstance
@@ -87,24 +90,28 @@ func (c *Collector) collectInstances(ctx context.Context, batch *graph.Batch) ([
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list instances: %w", err)
+		return nil, nil, fmt.Errorf("list instances: %w", err)
 	}
 
 	firewalls, err := listFirewalls(ctx, service, c.ProjectID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	lbTargets, err := listLoadBalancerTargets(ctx, service, c.ProjectID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var uses []gcpInstanceSA
+	var networks []gcpWorkloadNet
 	seen := map[string]struct{}{}
 	for _, item := range instances {
 		uses = append(uses, c.recordInstance(batch, item.zone, item.instance, firewalls, lbTargets, seen)...)
+		if net, ok := gcpWorkloadNetwork(c, item.zone, item.instance); ok {
+			networks = append(networks, net)
+		}
 	}
-	return uses, nil
+	return uses, networks, nil
 }
 
 type scopedInstance struct {

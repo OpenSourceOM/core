@@ -345,6 +345,10 @@ func datastoreResourceID(node graph.Node) (string, bool) {
 	if node.Type != graph.NodeDatastore || node.Properties == nil {
 		return "", false
 	}
+	service, _ := node.Properties["service"].(string)
+	if service != "" && service != "storage" {
+		return "", false
+	}
 	id, _ := node.Properties["resource_id"].(string)
 	if id == "" {
 		return "", false

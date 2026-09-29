@@ -107,7 +107,7 @@ func (c *Collector) linkGCPAccess(batch *graph.Batch, accounts []gcpPrincipal, u
 			continue
 		}
 		for _, node := range batch.Nodes {
-			if node.Type != graph.NodeDatastore || node.Name == "" {
+			if !gcsDatastore(node) {
 				continue
 			}
 			if binding.Bucket != "" && node.Name != binding.Bucket {
@@ -214,6 +214,14 @@ func (c *Collector) setGCPAdmin(batch *graph.Batch, id string, admin bool) {
 		batch.Nodes[i].Properties["admin_access"] = admin
 		return
 	}
+}
+
+func gcsDatastore(node graph.Node) bool {
+	if node.Type != graph.NodeDatastore || node.Name == "" {
+		return false
+	}
+	service, _ := node.Properties["service"].(string)
+	return service == "" || service == "gcs"
 }
 
 func addEdge(batch *graph.Batch, edge graph.Edge) {

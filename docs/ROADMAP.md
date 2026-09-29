@@ -41,7 +41,7 @@ High-level plan for OpenSourceOM core. Timelines are approximate and community-d
 
 Phases 0–2 shipped the walking skeleton. Current work is correctness and operability on that skeleton:
 
-- **Exposure, identity, and access edges** — [#11](https://github.com/OpenSourceOM/core/issues/11), [#25](https://github.com/OpenSourceOM/core/issues/25), [#27](https://github.com/OpenSourceOM/core/issues/27)
+- **Exposure, identity, and access edges** — [#11](https://github.com/OpenSourceOM/core/issues/11), [#25](https://github.com/OpenSourceOM/core/issues/25)
 - **CVE enrichment tied to workload inventory** — [#12](https://github.com/OpenSourceOM/core/issues/12)
 - **Query limits** — [#20](https://github.com/OpenSourceOM/core/issues/20)
 - **Self-hosted operability** — [#22](https://github.com/OpenSourceOM/core/issues/22), [#32](https://github.com/OpenSourceOM/core/issues/32), [#34](https://github.com/OpenSourceOM/core/issues/34)

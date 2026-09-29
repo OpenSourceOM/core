@@ -31,7 +31,7 @@ SPDX-License-Identifier: Apache-2.0
 
 | Component | Location | Notes |
 |-----------|----------|-------|
-| **Collectors** | `internal/collectors/` | AWS, Azure, GCP, Kubernetes, demo; AWS emits CIS pack properties |
+| **Collectors** | `internal/collectors/` | AWS, Azure, GCP, Kubernetes, demo; RDS, Azure SQL, and Cloud SQL are datastores; AWS emits CIS pack properties |
 | **Plugin SDK** | `sdk/collector`, `internal/plugins/` | External executables; `om scan plugin` |
 | **Graph store** | `internal/graph/`, `migrations/` | PostgreSQL `nodes` + `edges` |
 | **Path queries** | `internal/graph/query.go` | Named queries including `internet-to-datastore` |
@@ -45,7 +45,7 @@ SPDX-License-Identifier: Apache-2.0
 
 ## Graph schema (v0)
 
-**Node types:** `Internet`, `Network`, `Workload`, `Identity`, `Datastore`, `Finding`, `Control`
+**Node types:** `Internet`, `Network`, `Workload`, `Identity`, `Datastore` (object storage and managed databases), `Finding`, `Control`
 
 **Edge types:** `REACHABLE`, `ASSUMES`, `CAN_ACCESS`, `AFFECTS`, `VIOLATES`
 

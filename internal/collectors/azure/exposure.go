@@ -125,6 +125,7 @@ type azureNICFacts struct {
 	PublicIP    string
 	NicNSGID    string
 	SubnetNSGID string
+	SubnetID    string
 	IPConfigID  string
 }
 
@@ -262,7 +263,7 @@ func readVMNetwork(ctx context.Context, api azureNetworkAPI, vm *armcompute.Virt
 			if err != nil {
 				return nil, err
 			}
-			fact := azureNICFacts{PublicIP: ip, NicNSGID: nicNSG, SubnetNSGID: subnetNSGID(cfg, subnetNSG)}
+			fact := azureNICFacts{PublicIP: ip, NicNSGID: nicNSG, SubnetNSGID: subnetNSGID(cfg, subnetNSG), SubnetID: subnetResourceID(cfg)}
 			if cfg.ID != nil {
 				fact.IPConfigID = *cfg.ID
 			}
@@ -270,6 +271,13 @@ func readVMNetwork(ctx context.Context, api azureNetworkAPI, vm *armcompute.Virt
 		}
 	}
 	return facts, nil
+}
+
+func subnetResourceID(cfg *armnetwork.InterfaceIPConfiguration) string {
+	if cfg == nil || cfg.Properties == nil || cfg.Properties.Subnet == nil || cfg.Properties.Subnet.ID == nil {
+		return ""
+	}
+	return *cfg.Properties.Subnet.ID
 }
 
 func subnetNSGID(cfg *armnetwork.InterfaceIPConfiguration, index map[string]string) string {
