@@ -1,0 +1,87 @@
+{{/*
+Copyright 2026 OpenSourceOM
+SPDX-License-Identifier: Apache-2.0
+*/}}
+{{- if eq (include "opensourceom.scan.any" .) "true" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "opensourceom.scan.serviceAccountName" . }}
+  labels:
+    {{- include "opensourceom.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scan
+  {{- with .Values.scan.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: false
+{{- end }}
+{{- if eq (include "opensourceom.scan.k8s.inCluster" .) "true" }}
+{{- if .Values.scan.kubernetes.namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "opensourceom.scan.serviceAccountName" . }}
+  namespace: {{ .Values.scan.kubernetes.namespace | quote }}
+  labels:
+    {{- include "opensourceom.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scan
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "serviceaccounts"]
+    verbs: ["get", "list"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "opensourceom.scan.serviceAccountName" . }}
+  namespace: {{ .Values.scan.kubernetes.namespace | quote }}
+  labels:
+    {{- include "opensourceom.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scan
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "opensourceom.scan.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "opensourceom.scan.serviceAccountName" . }}
+{{- else }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "opensourceom.scan.serviceAccountName" . }}
+  labels:
+    {{- include "opensourceom.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scan
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "pods", "services", "serviceaccounts"]
+    verbs: ["get", "list"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "opensourceom.scan.serviceAccountName" . }}
+  labels:
+    {{- include "opensourceom.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scan
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "opensourceom.scan.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "opensourceom.scan.serviceAccountName" . }}
+{{- end }}
+{{- end }}

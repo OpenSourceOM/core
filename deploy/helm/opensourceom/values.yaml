@@ -35,3 +35,53 @@ resources:
   limits:
     cpu: 1
     memory: 512Mi
+
+# Scheduled collectors. Each cloud CronJob is created only when that
+# collector is enabled and credentials are set (a static key, an existing
+# Secret, or serviceAccountAuth). Kubernetes is off unless enabled; without
+# a kubeconfig Secret the chart creates a read-only ServiceAccount for this
+# cluster. `om scan demo` is not scheduled.
+scan:
+  schedule: "0 */6 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  activeDeadlineSeconds: 7200
+  # Empty uses the API resources block.
+  resources: {}
+  serviceAccount:
+    annotations: {}
+  aws:
+    enabled: false
+    region: us-east-1
+    # Keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY. Prefer this over the inline fields.
+    existingSecret: ""
+    accessKeyId: ""
+    secretAccessKey: ""
+    serviceAccountAuth: false
+  azure:
+    enabled: false
+    subscriptionId: ""
+    location: eastus
+    # Keys: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET.
+    existingSecret: ""
+    tenantId: ""
+    clientId: ""
+    clientSecret: ""
+    serviceAccountAuth: false
+  gcp:
+    enabled: false
+    projectId: ""
+    region: us-central1
+    # Key: credentials.json, a service-account JSON file.
+    existingSecret: ""
+    credentialsJson: ""
+    serviceAccountAuth: false
+  kubernetes:
+    enabled: false
+    # Graph account id. With a kubeconfig Secret this must match a context
+    # name, unless it is empty or "default" (then the current context is used).
+    # In-cluster scans keep this as the account id and use the pod ServiceAccount.
+    cluster: ""
+    namespace: ""
+    existingSecret: ""
+    kubeconfigKey: kubeconfig

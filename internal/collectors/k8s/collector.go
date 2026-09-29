@@ -6,6 +6,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/OpenSourceOM/core/internal/graph"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -234,7 +235,20 @@ func (c *Collector) listNetworkPolicies(ctx context.Context, client *kubernetes.
 	return items, nil
 }
 
+// loadConfig prefers KUBECONFIG when the operator set it. A pod with no
+// kubeconfig uses its service account. Cluster stays the graph account id
+// in that case, rather than a kubeconfig context name.
 func (c *Collector) loadConfig() (*rest.Config, error) {
+	if os.Getenv("KUBECONFIG") != "" {
+		return c.kubeConfig()
+	}
+	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" && os.Getenv("KUBERNETES_SERVICE_PORT") != "" {
+		return rest.InClusterConfig()
+	}
+	return c.kubeConfig()
+}
+
+func (c *Collector) kubeConfig() (*rest.Config, error) {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	configOverrides := &clientcmd.ConfigOverrides{}
 	if c.Cluster != "" && c.Cluster != "default" {

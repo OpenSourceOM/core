@@ -147,6 +147,8 @@ helm install om deploy/helm/opensourceom \
   --set image.tag=0.2.1
 ```
 
+Collectors stay off until you enable one and supply credentials, an existing Secret, or `serviceAccountAuth`. The CronJob runs `om scan` against the same Postgres the API reads. `om scan demo` stays a one-shot command. See `scan` in `deploy/helm/opensourceom/values.yaml`.
+
 Full documentation: [opensourceom.org](https://opensourceom.org) (docs at [opensourceom.org/docs](https://opensourceom.org/docs/))
 
 ## Roadmap snapshot

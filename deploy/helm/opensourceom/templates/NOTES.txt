@@ -11,3 +11,30 @@
      --set image.tag=0.1.0
 
 3. Open the console via the ClusterIP service or `kubectl port-forward svc/om-opensourceom 8080:8080`.
+
+Scheduled collectors reconcile into this release's Postgres with `om scan`. They stay off until credentials are set. `om scan demo` remains a one-shot command.
+
+{{- if eq (include "opensourceom.scan.any" .) "true" }}
+This release schedules:
+{{- if eq (include "opensourceom.scan.aws.on" .) "true" }}
+- aws ({{ .Values.scan.schedule }})
+{{- end }}
+{{- if eq (include "opensourceom.scan.azure.on" .) "true" }}
+- azure ({{ .Values.scan.schedule }})
+{{- end }}
+{{- if eq (include "opensourceom.scan.gcp.on" .) "true" }}
+- gcp ({{ .Values.scan.schedule }})
+{{- end }}
+{{- if eq (include "opensourceom.scan.k8s.on" .) "true" }}
+- kubernetes ({{ .Values.scan.schedule }})
+{{- end }}
+{{- end }}
+{{- if and .Values.scan.aws.enabled (ne (include "opensourceom.scan.aws.on" .) "true") }}
+AWS scan is enabled but has no credentials, so no CronJob was created.
+{{- end }}
+{{- if and .Values.scan.azure.enabled (ne (include "opensourceom.scan.azure.on" .) "true") }}
+Azure scan is enabled but has no subscription id or credentials, so no CronJob was created.
+{{- end }}
+{{- if and .Values.scan.gcp.enabled (ne (include "opensourceom.scan.gcp.on" .) "true") }}
+GCP scan is enabled but has no project id or credentials, so no CronJob was created.
+{{- end }}

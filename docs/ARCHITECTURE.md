@@ -41,7 +41,7 @@ SPDX-License-Identifier: Apache-2.0
 | **Exports** | `internal/export/` | SIEM JSONL, Slack webhooks, Jira issues |
 | **API** | `internal/api/` | REST + embedded console at `/`; shared API secret on `/v1` except health |
 | **CLI** | `cmd/om/`, `internal/cmd/` | `migrate`, `serve`, `scan`, `rules`, `identity`, `export`, … |
-| **Helm** | `deploy/helm/opensourceom/` | API + optional in-cluster Postgres |
+| **Helm** | `deploy/helm/opensourceom/` | API, optional Postgres, optional scheduled collectors |
 
 ## Graph schema (v0)
 
@@ -68,13 +68,13 @@ See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings
 ## Deployment
 
 - **Dev:** Docker Compose — Postgres + API (`docker compose up -d`); CLI can also target Postgres directly
-- **Prod:** Helm chart in `deploy/helm/opensourceom/` (API + optional Postgres)
+- **Prod:** Helm chart in `deploy/helm/opensourceom/` (API, optional Postgres, optional scheduled collectors)
 
 ## What's next (Phase 3)
 
 Making the skeleton true, in order:
 
-- Self-hosted operability (scheduled scans, console). Read routes honor the API secret.
+- Self-hosted operability (console). Read routes honor the API secret, and the Helm chart schedules collectors when credentials are set.
 - CVE enrichment tied to workload inventory
 - Crown-jewel mark on datastores
 - Attack path as the finding
