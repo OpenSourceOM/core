@@ -28,6 +28,20 @@ jobs:
 
   go:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: opensourceom
+          POSTGRES_PASSWORD: opensourceom
+          POSTGRES_DB: opensourceom
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U opensourceom"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -43,6 +57,8 @@ jobs:
         run: go build ./...
 
       - name: Test
+        env:
+          TEST_DATABASE_URL: postgres://opensourceom:opensourceom@localhost:5432/opensourceom?sslmode=disable
         run: go test ./...
 
   govulncheck:

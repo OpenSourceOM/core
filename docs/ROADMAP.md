@@ -41,10 +41,10 @@ High-level plan for OpenSourceOM core. Timelines are approximate and community-d
 
 Phases 0–2 shipped the walking skeleton. Current work is correctness and operability on that skeleton:
 
-- **Exposure, identity, and access edges** — [#11](https://github.com/OpenSourceOM/core/issues/11), [#25](https://github.com/OpenSourceOM/core/issues/25), [#26](https://github.com/OpenSourceOM/core/issues/26), [#27](https://github.com/OpenSourceOM/core/issues/27), [#31](https://github.com/OpenSourceOM/core/issues/31)
+- **Exposure, identity, and access edges** — [#11](https://github.com/OpenSourceOM/core/issues/11), [#25](https://github.com/OpenSourceOM/core/issues/25), [#27](https://github.com/OpenSourceOM/core/issues/27), [#31](https://github.com/OpenSourceOM/core/issues/31)
 - **CVE enrichment tied to workload inventory** — [#12](https://github.com/OpenSourceOM/core/issues/12)
 - **Rescans and query limits** — [#20](https://github.com/OpenSourceOM/core/issues/20), [#21](https://github.com/OpenSourceOM/core/issues/21)
-- **Self-hosted operability** — [#22](https://github.com/OpenSourceOM/core/issues/22), [#23](https://github.com/OpenSourceOM/core/issues/23), [#32](https://github.com/OpenSourceOM/core/issues/32), [#34](https://github.com/OpenSourceOM/core/issues/34)
+- **Self-hosted operability** — [#22](https://github.com/OpenSourceOM/core/issues/22), [#32](https://github.com/OpenSourceOM/core/issues/32), [#34](https://github.com/OpenSourceOM/core/issues/34)
 - **Cloud audit logs as graph context** — [#33](https://github.com/OpenSourceOM/core/issues/33)
 
 ## Open source vs. commercial

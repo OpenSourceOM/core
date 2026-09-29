@@ -54,9 +54,10 @@ Synthetic nodes use stable global IDs (e.g. `internet:global`).
 | Query | Description |
 |-------|-------------|
 | `internet-to-workload` | Paths from Internet to reachable workloads |
-| `public-s3-buckets` | S3 buckets with public exposure indicators |
-| `admin-identities` | IAM roles with broad admin indicators |
-| `toxic-s3-public-with-admin-role` | Public S3 buckets linked to admin-capable identities |
+| `internet-to-datastore` | Paths from Internet through a workload to a datastore |
+| `public-datastore` | Datastores with public exposure indicators. `public-s3-buckets` is an alias. |
+| `admin-identities` | Identities with broad administrative permissions |
+| `admin-to-public-datastore` | Public datastores linked to admin-capable identities. `toxic-s3-public-with-admin-role` is an alias. |
 
 ## Consequences
 
