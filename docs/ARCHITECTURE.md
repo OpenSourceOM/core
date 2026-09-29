@@ -72,12 +72,17 @@ See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings
 
 ## What's next (Phase 3)
 
-- Exposure, identity, and access edges
-- CVE enrichment tied to workload inventory
+Making the skeleton true, in order:
+
+- Exposure and identity edges
 - Query limits
 - Self-hosted operability (read auth, health, scheduled scans, console)
-- Broader community rule packs (PCI and additional CIS mappings)
+- CVE enrichment tied to workload inventory
+- Crown-jewel mark on datastores
+- Attack path as the finding
 - Cloud audit logs as graph context
+
+Further community rule packs (PCI and additional CIS mappings) stay open for contributors.
 
 Issue links: [ROADMAP.md](./ROADMAP.md)
 
