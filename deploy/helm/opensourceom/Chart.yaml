@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 apiVersion: v2
 name: opensourceom
-description: Self-hosted OpenSourceOM Core API and optional Postgres
+description: Self-hosted OpenSourceOM Core API, optional Postgres, and optional scheduled collectors
 type: application
 version: 0.2.1
 appVersion: "0.2.1"

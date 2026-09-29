@@ -1,0 +1,62 @@
+{{/*
+Copyright 2026 OpenSourceOM
+SPDX-License-Identifier: Apache-2.0
+*/}}
+{{- if eq (include "opensourceom.scan.aws.on" .) "true" }}
+---
+{{- $awsEnv := printf "- name: AWS_REGION\n  value: %s" (.Values.scan.aws.region | quote) }}
+{{- with include "opensourceom.scan.aws.envFrom" . }}
+{{- $awsEnv = printf "%s\n%s" $awsEnv (include "opensourceom.scan.secretEnv" (dict "name" . "keys" (list "AWS_ACCESS_KEY_ID" "AWS_SECRET_ACCESS_KEY")) | trim) }}
+{{- end }}
+{{ include "opensourceom.scan.cronjob" (dict
+  "root" .
+  "name" (include "opensourceom.scan.jobName" (dict "root" . "suffix" "aws"))
+  "args" (list "scan" "aws")
+  "extraEnv" $awsEnv
+  "automountToken" false
+) }}
+{{- end }}
+{{- if eq (include "opensourceom.scan.azure.on" .) "true" }}
+---
+{{- $azureEnv := printf "- name: AZURE_SUBSCRIPTION_ID\n  value: %s\n- name: AZURE_LOCATION\n  value: %s" (.Values.scan.azure.subscriptionId | quote) (.Values.scan.azure.location | quote) }}
+{{- with include "opensourceom.scan.azure.envFrom" . }}
+{{- $azureEnv = printf "%s\n%s" $azureEnv (include "opensourceom.scan.secretEnv" (dict "name" . "keys" (list "AZURE_TENANT_ID" "AZURE_CLIENT_ID" "AZURE_CLIENT_SECRET")) | trim) }}
+{{- end }}
+{{ include "opensourceom.scan.cronjob" (dict
+  "root" .
+  "name" (include "opensourceom.scan.jobName" (dict "root" . "suffix" "azure"))
+  "args" (list "scan" "azure")
+  "extraEnv" $azureEnv
+  "automountToken" false
+) }}
+{{- end }}
+{{- if eq (include "opensourceom.scan.gcp.on" .) "true" }}
+---
+{{- $gcpSecret := include "opensourceom.scan.gcp.secretName" . }}
+{{ include "opensourceom.scan.cronjob" (dict
+  "root" .
+  "name" (include "opensourceom.scan.jobName" (dict "root" . "suffix" "gcp"))
+  "args" (list "scan" "gcp")
+  "extraEnv" (printf "- name: GCP_PROJECT_ID\n  value: %s\n- name: GCP_REGION\n  value: %s%s" (.Values.scan.gcp.projectId | quote) (.Values.scan.gcp.region | quote) (ternary (printf "\n- name: GOOGLE_APPLICATION_CREDENTIALS\n  value: /var/secrets/google/credentials.json") "" (ne $gcpSecret "")))
+  "automountToken" false
+  "volumeMounts" (ternary "- name: gcp-credentials\n  mountPath: /var/secrets/google\n  readOnly: true" "" (ne $gcpSecret ""))
+  "volumes" (ternary (printf "- name: gcp-credentials\n  secret:\n    secretName: %s\n    items:\n      - key: credentials.json\n        path: credentials.json" ($gcpSecret | quote)) "" (ne $gcpSecret ""))
+) }}
+{{- end }}
+{{- if eq (include "opensourceom.scan.k8s.on" .) "true" }}
+---
+{{- $kubeSecret := .Values.scan.kubernetes.existingSecret }}
+{{- $k8sEnv := printf "- name: K8S_CLUSTER\n  value: %s\n- name: K8S_NAMESPACE\n  value: %s" (.Values.scan.kubernetes.cluster | quote) (.Values.scan.kubernetes.namespace | quote) }}
+{{- if $kubeSecret }}
+{{- $k8sEnv = printf "%s\n- name: KUBECONFIG\n  value: /var/secrets/kube/kubeconfig" $k8sEnv }}
+{{- end }}
+{{ include "opensourceom.scan.cronjob" (dict
+  "root" .
+  "name" (include "opensourceom.scan.jobName" (dict "root" . "suffix" "k8s"))
+  "args" (list "scan" "k8s")
+  "extraEnv" $k8sEnv
+  "automountToken" (eq (include "opensourceom.scan.k8s.inCluster" .) "true")
+  "volumeMounts" (ternary "- name: kubeconfig\n  mountPath: /var/secrets/kube\n  readOnly: true" "" (ne $kubeSecret ""))
+  "volumes" (ternary (printf "- name: kubeconfig\n  secret:\n    secretName: %s\n    items:\n      - key: %s\n        path: kubeconfig" ($kubeSecret | quote) (.Values.scan.kubernetes.kubeconfigKey | quote)) "" (ne $kubeSecret ""))
+) }}
+{{- end }}
