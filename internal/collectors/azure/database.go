@@ -43,6 +43,7 @@ type sqlServer struct {
 	publicAccess   bool
 	rules          []sqlFirewall
 	subnets        []string
+	tags           map[string]string
 }
 
 // collectSQL adds one Datastore per logical server. Databases on a server
@@ -199,6 +200,9 @@ func expandedFromGet(listed *armresources.GenericResourceExpanded, got armresour
 	if got.Properties != nil {
 		out.Properties = got.Properties
 	}
+	if got.Tags != nil {
+		out.Tags = got.Tags
+	}
 	return &out
 }
 
@@ -227,6 +231,7 @@ func assembleSQLServers(servers, firewalls, vnetRules []*armresources.GenericRes
 			resourceID:     safeString(item.ID),
 			location:       safeString(item.Location),
 			publicEndpoint: !strings.EqualFold(strings.TrimSpace(access), "Disabled"),
+			tags:           tagStrings(item.Tags),
 		}
 		ordered = append(ordered, key)
 	}
@@ -277,18 +282,20 @@ func (c *Collector) addSQLNodes(batch *graph.Batch, servers []sqlServer) {
 		if server.location == "" {
 			server.location = c.Location
 		}
+		props := map[string]any{
+			"resource_id":   server.resourceID,
+			"service":       "sql",
+			"public_access": server.publicAccess,
+		}
+		graph.SetSensitivity(props, server.tags)
 		batch.Nodes = append(batch.Nodes, graph.Node{
-			ID:        c.nodeID("datastore", server.name),
-			Type:      graph.NodeDatastore,
-			Name:      server.name,
-			Provider:  "azure",
-			Region:    server.location,
-			AccountID: c.SubscriptionID,
-			Properties: graph.MustProperties(map[string]any{
-				"resource_id":   server.resourceID,
-				"service":       "sql",
-				"public_access": server.publicAccess,
-			}),
+			ID:         c.nodeID("datastore", server.name),
+			Type:       graph.NodeDatastore,
+			Name:       server.name,
+			Provider:   "azure",
+			Region:     server.location,
+			AccountID:  c.SubscriptionID,
+			Properties: graph.MustProperties(props),
 		})
 	}
 }

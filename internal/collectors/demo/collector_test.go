@@ -43,6 +43,12 @@ func TestCollectSampleEnvironment(t *testing.T) {
 	if v, _ := db.Properties["public_access"].(bool); v {
 		t.Fatal("prod-db is private")
 	}
+	if db.Properties["sensitivity"] != "customer" {
+		t.Fatalf("prod-db sensitivity = %#v", db.Properties["sensitivity"])
+	}
+	if _, ok := public.Properties["sensitivity"]; ok {
+		t.Fatal("public logs are unmarked")
+	}
 	admin := ids[AdminRoleID]
 	if v, _ := admin.Properties["admin_access"].(bool); !v {
 		t.Fatal("AdminRole has administrator access")

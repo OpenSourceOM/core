@@ -160,6 +160,30 @@ func testCIDRSecurityGroup(id, cidr string, port int32) ec2types.SecurityGroup {
 	}
 }
 
+func TestRDSCopiesSensitivityTag(t *testing.T) {
+	c := &Collector{Region: "us-east-1", AccountID: "111122223333"}
+	marked := testDB("customers", "vpc-1", 5432, false, "sg-db")
+	marked.TagList = []rdstypes.Tag{
+		{Key: aws.String("data-class"), Value: aws.String("logs")},
+		{Key: aws.String("Sensitivity"), Value: aws.String("restricted")},
+	}
+	unmarked := testDB("logs", "vpc-1", 5432, false, "sg-db")
+	client := &fakeRDS{pages: map[string]dbPage{
+		"": {items: []rdstypes.DBInstance{marked, unmarked}},
+	}}
+	var batch graph.Batch
+	if err := c.collectRDS(context.Background(), client, &batch, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := nodeByIDMust(t, batch, c.nodeID("datastore", "customers")).Properties["sensitivity"]
+	if got != "restricted" {
+		t.Fatalf("customers sensitivity = %#v", got)
+	}
+	if _, ok := nodeByIDMust(t, batch, c.nodeID("datastore", "logs")).Properties["sensitivity"]; ok {
+		t.Fatal("untagged database should stay unmarked")
+	}
+}
+
 func nodeByIDMust(t *testing.T, batch graph.Batch, id string) graph.Node {
 	t.Helper()
 	node, ok := nodeByID(batch, id)

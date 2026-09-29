@@ -265,16 +265,13 @@ func (c *Collector) collectStorage(ctx context.Context, cred azcore.TokenCredent
 
 			datastoreID := c.nodeID("datastore", *account.Name)
 			batch.Nodes = append(batch.Nodes, graph.Node{
-				ID:        datastoreID,
-				Type:      graph.NodeDatastore,
-				Name:      *account.Name,
-				Provider:  "azure",
-				Region:    location,
-				AccountID: c.SubscriptionID,
-				Properties: graph.MustProperties(map[string]any{
-					"resource_id":   safeString(account.ID),
-					"public_access": publicAccess,
-				}),
+				ID:         datastoreID,
+				Type:       graph.NodeDatastore,
+				Name:       *account.Name,
+				Provider:   "azure",
+				Region:     location,
+				AccountID:  c.SubscriptionID,
+				Properties: graph.MustProperties(storageProperties(safeString(account.ID), publicAccess, account.Tags)),
 			})
 		}
 	}
@@ -391,4 +388,27 @@ func safeString(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+func tagStrings(tags map[string]*string) map[string]string {
+	if len(tags) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(tags))
+	for key, value := range tags {
+		if value == nil {
+			continue
+		}
+		out[key] = *value
+	}
+	return out
+}
+
+func storageProperties(resourceID string, publicAccess bool, tags map[string]*string) map[string]any {
+	props := map[string]any{
+		"resource_id":   resourceID,
+		"public_access": publicAccess,
+	}
+	graph.SetSensitivity(props, tagStrings(tags))
+	return props
 }

@@ -108,6 +108,41 @@ func TestAzureSQLFollowsNetworkPath(t *testing.T) {
 	}
 }
 
+func TestDatastoreSensitivityFromTags(t *testing.T) {
+	c := NewCollector("sub", "eastus")
+	customer := "customer"
+	blank := " "
+	servers := []*armresources.GenericResourceExpanded{
+		sqlResource("customers", "Microsoft.Sql/servers", "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Sql/servers/customers", map[string]any{
+			"publicNetworkAccess": "Disabled",
+		}),
+		sqlResource("logs", "Microsoft.Sql/servers", "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Sql/servers/logs", map[string]any{
+			"publicNetworkAccess": "Disabled",
+		}),
+	}
+	servers[0].Tags = map[string]*string{"data-class": &customer, "sensitivity": &blank}
+	model := assembleSQLServers(servers, nil, nil)
+	var batch graph.Batch
+	c.addSQLNodes(&batch, model)
+
+	got := findNode(batch, c.nodeID("datastore", "customers")).Properties["sensitivity"]
+	if got != "customer" {
+		t.Fatalf("customers sensitivity = %#v", got)
+	}
+	if _, ok := findNode(batch, c.nodeID("datastore", "logs")).Properties["sensitivity"]; ok {
+		t.Fatal("untagged server should stay unmarked")
+	}
+
+	props := storageProperties("/subscriptions/sub/storage", false, map[string]*string{"Sensitivity": &customer})
+	if props["sensitivity"] != "customer" {
+		t.Fatalf("storage sensitivity = %#v", props["sensitivity"])
+	}
+	plain := storageProperties("/subscriptions/sub/logs", true, nil)
+	if _, ok := plain["sensitivity"]; ok {
+		t.Fatal("untagged storage account should stay unmarked")
+	}
+}
+
 func sqlResource(name, resourceType, id string, props map[string]any) *armresources.GenericResourceExpanded {
 	return &armresources.GenericResourceExpanded{
 		Name:       &name,

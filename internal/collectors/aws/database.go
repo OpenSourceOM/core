@@ -125,6 +125,15 @@ func (c *Collector) recordRDS(batch *graph.Batch, instance rdstypes.DBInstance, 
 	if vpcID != "" {
 		props["vpc_id"] = vpcID
 	}
+	tags := make(map[string]string, len(instance.TagList))
+	for _, tag := range instance.TagList {
+		key := aws.ToString(tag.Key)
+		if key == "" {
+			continue
+		}
+		tags[key] = aws.ToString(tag.Value)
+	}
+	graph.SetSensitivity(props, tags)
 	batch.Nodes = append(batch.Nodes, graph.Node{
 		ID:         nodeID,
 		Type:       graph.NodeDatastore,

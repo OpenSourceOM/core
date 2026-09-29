@@ -34,3 +34,17 @@ func TestGCSPolicyPublicRead(t *testing.T) {
 		t.Fatal("object create is not object read")
 	}
 }
+
+func TestGCSCopiesSensitivityLabel(t *testing.T) {
+	marked := gcsProperties("customers", false, map[string]string{
+		"data-class":  "logs",
+		"sensitivity": "customer",
+	})
+	if marked["sensitivity"] != "customer" {
+		t.Fatalf("sensitivity = %#v", marked["sensitivity"])
+	}
+	plain := gcsProperties("logs", true, nil)
+	if _, ok := plain["sensitivity"]; ok {
+		t.Fatal("unlabeled bucket should stay unmarked")
+	}
+}
