@@ -39,15 +39,15 @@ High-level plan for OpenSourceOM core. Timelines are approximate and community-d
 - [x] Sample environment (`om scan demo`)
 - [ ] Broader community rule packs (PCI and additional CIS mappings) — [#10](https://github.com/OpenSourceOM/core/issues/10)
 
-Phases 0–2 shipped the walking skeleton. Exposure and identity edges now follow the cloud and Kubernetes. Current work is the self-hosted console, then findings that match installed software, and the attack path as the thing an operator fixes.
+Phases 0–2 shipped the walking skeleton. Exposure and identity edges now follow the cloud and Kubernetes. CVE findings follow package and image inventory on the workload. Current work is the crown-jewel mark on datastores, then the attack path as the thing an operator fixes.
 
 Correctness and operability come first:
 
-- **Self-hosted operability** — read APIs honor `OM_API_SECRET` ([#22](https://github.com/OpenSourceOM/core/issues/22)). The Helm chart schedules collectors when credentials are set ([#32](https://github.com/OpenSourceOM/core/issues/32)). Still open: [#34](https://github.com/OpenSourceOM/core/issues/34)
+- **Self-hosted operability** — read APIs honor `OM_API_SECRET` ([#22](https://github.com/OpenSourceOM/core/issues/22)). The Helm chart schedules collectors when credentials are set ([#32](https://github.com/OpenSourceOM/core/issues/32)).
 
 The path, in order:
 
-- **CVE enrichment tied to workload inventory** — [#12](https://github.com/OpenSourceOM/core/issues/12)
+- [x] **CVE enrichment tied to workload inventory** — [#12](https://github.com/OpenSourceOM/core/issues/12)
 - **Crown-jewel mark on datastores** — [#58](https://github.com/OpenSourceOM/core/issues/58)
 - **Attack path as the finding** — [#57](https://github.com/OpenSourceOM/core/issues/57)
 - **Cloud audit logs as graph context** — [#33](https://github.com/OpenSourceOM/core/issues/33), after those edges are trustworthy

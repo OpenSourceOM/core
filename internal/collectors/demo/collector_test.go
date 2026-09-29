@@ -47,6 +47,17 @@ func TestCollectSampleEnvironment(t *testing.T) {
 	if v, _ := admin.Properties["admin_access"].(bool); !v {
 		t.Fatal("AdminRole has administrator access")
 	}
+	webPkgs, _ := ids[WebInstanceID].Properties["packages"].([]any)
+	workerPkgs, _ := ids[WorkerInstanceID].Properties["packages"].([]any)
+	if len(webPkgs) != 1 || webPkgs[0] != "cpe:2.3:a:apache:log4j:2.14.1:*:*:*:*:*:*:*" {
+		t.Fatalf("web-1 packages = %#v", webPkgs)
+	}
+	if len(workerPkgs) != 1 || workerPkgs[0] != "cpe:2.3:a:apache:log4j:2.17.1:*:*:*:*:*:*:*" {
+		t.Fatalf("worker-1 packages = %#v", workerPkgs)
+	}
+	if ids[K8sFrontendID].Properties["image"] != "nginx:1.25.3" {
+		t.Fatalf("frontend image = %#v", ids[K8sFrontendID].Properties["image"])
+	}
 	if _, ok := admin.Properties["mfa"]; ok {
 		t.Fatal("AdminRole is an instance role and has no MFA property")
 	}

@@ -41,6 +41,10 @@ func Sample() collector.Batch {
 				Provider: "plugin",
 				Properties: map[string]any{
 					"public_ip": true,
+					"packages": []any{
+						"pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1",
+					},
+					"image": "example/edge:1.4.0",
 				},
 			},
 			{

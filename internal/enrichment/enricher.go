@@ -8,14 +8,20 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/OpenSourceOM/core/internal/enrichment/nvd"
 	"github.com/OpenSourceOM/core/internal/enrichment/severity"
 	"github.com/OpenSourceOM/core/internal/graph"
 )
 
+type graphStore interface {
+	ForEachNode(ctx context.Context, nodeType string, visit func(graph.Node) error) error
+	InternetReachableWorkloadIDs(ctx context.Context) ([]string, error)
+	GetNode(ctx context.Context, id string) (graph.Node, error)
+	UpsertBatch(ctx context.Context, batch graph.Batch) error
+}
+
 type Enricher struct {
-	store *graph.Store
-	nvd   *nvd.Client
+	store  graphStore
+	source Source
 }
 
 type Options struct {
@@ -28,12 +34,16 @@ type Result struct {
 	FindingsUpdated int
 }
 
-func New(store *graph.Store, nvdClient *nvd.Client) *Enricher {
-	return &Enricher{store: store, nvd: nvdClient}
+func New(store *graph.Store, source Source) *Enricher {
+	return &Enricher{store: store, source: source}
 }
 
 func (e *Enricher) EnrichCVE(ctx context.Context, opts Options) (Result, error) {
 	var result Result
+	cveIDs, err := normalizeCVEIDs(opts.CVEIDs)
+	if err != nil {
+		return result, err
+	}
 	targets, err := e.targetWorkloads(ctx, opts.InternetOnly)
 	if err != nil {
 		return result, err
@@ -42,34 +52,24 @@ func (e *Enricher) EnrichCVE(ctx context.Context, opts Options) (Result, error) 
 		return result, nil
 	}
 
-	cveIDs := opts.CVEIDs
-	if len(cveIDs) == 0 {
-		cveIDs = []string{"CVE-2021-44228"}
-	}
-
 	for _, workload := range targets {
-		for _, cveID := range cveIDs {
-			created, err := e.attachCVE(ctx, workload, cveID)
-			if err != nil {
-				return result, fmt.Errorf("attach %s to %s: %w", cveID, workload.ID, err)
+		inv := ParseInventory(workload.Properties)
+		hits, err := e.source.Match(ctx, inv, cveIDs)
+		if err != nil {
+			return result, fmt.Errorf("match %s: %w", workload.ID, err)
+		}
+		for _, hit := range hits {
+			if err := e.attachCVE(ctx, workload, hit); err != nil {
+				return result, fmt.Errorf("attach %s to %s: %w", hit.ID, workload.ID, err)
 			}
-			if created {
-				result.FindingsCreated++
-			} else {
-				result.FindingsUpdated++
-			}
+			result.FindingsCreated++
 		}
 
 		if workloadHasPublicIP(workload) {
-			created, err := e.attachExposureFinding(ctx, workload)
-			if err != nil {
+			if err := e.attachExposureFinding(ctx, workload); err != nil {
 				return result, err
 			}
-			if created {
-				result.FindingsCreated++
-			} else {
-				result.FindingsUpdated++
-			}
+			result.FindingsCreated++
 		}
 	}
 
@@ -101,32 +101,31 @@ func (e *Enricher) targetWorkloads(ctx context.Context, internetOnly bool) ([]gr
 	return workloads, nil
 }
 
-func (e *Enricher) attachCVE(ctx context.Context, workload graph.Node, cveID string) (created bool, err error) {
-	cve, err := e.nvd.Lookup(ctx, cveID)
-	if err != nil {
-		return false, err
+func (e *Enricher) attachCVE(ctx context.Context, workload graph.Node, hit FindingCVE) error {
+	findingID := fmt.Sprintf("finding:%s:%s", strings.ToLower(hit.ID), workload.ID)
+	props := map[string]any{
+		"cve_id":            hit.ID,
+		"title":             hit.Title,
+		"description":       hit.Description,
+		"cvss_score":        hit.CVSSScore,
+		"severity":          hit.Severity,
+		"normalized_score":  hit.Normalized,
+		"finding_type":      "cve",
+		"affected_resource": workload.ID,
 	}
-
-	findingID := fmt.Sprintf("finding:%s:%s", strings.ToLower(cve.ID), workload.ID)
+	if hit.Matched != "" {
+		props["matched_identifier"] = hit.Matched
+	}
 	batch := graph.Batch{
 		Nodes: []graph.Node{
 			{
-				ID:        findingID,
-				Type:      graph.NodeFinding,
-				Name:      cve.ID,
-				Provider:  workload.Provider,
-				Region:    workload.Region,
-				AccountID: workload.AccountID,
-				Properties: graph.MustProperties(map[string]any{
-					"cve_id":            cve.ID,
-					"title":             cve.Title,
-					"description":       cve.Description,
-					"cvss_score":        cve.CVSSScore,
-					"severity":          cve.Severity,
-					"normalized_score":  cve.Normalized,
-					"finding_type":      "cve",
-					"affected_resource": workload.ID,
-				}),
+				ID:         findingID,
+				Type:       graph.NodeFinding,
+				Name:       hit.ID,
+				Provider:   workload.Provider,
+				Region:     workload.Region,
+				AccountID:  workload.AccountID,
+				Properties: graph.MustProperties(props),
 			},
 		},
 		Edges: []graph.Edge{
@@ -141,14 +140,10 @@ func (e *Enricher) attachCVE(ctx context.Context, workload graph.Node, cveID str
 			},
 		},
 	}
-
-	if err := e.store.UpsertBatch(ctx, batch); err != nil {
-		return false, err
-	}
-	return true, nil
+	return e.store.UpsertBatch(ctx, batch)
 }
 
-func (e *Enricher) attachExposureFinding(ctx context.Context, workload graph.Node) (created bool, err error) {
+func (e *Enricher) attachExposureFinding(ctx context.Context, workload graph.Node) error {
 	findingID := fmt.Sprintf("finding:internet-exposed:%s", workload.ID)
 	level := severity.LevelHigh
 	normalized := severity.NormalizedScore(level)
@@ -181,11 +176,7 @@ func (e *Enricher) attachExposureFinding(ctx context.Context, workload graph.Nod
 			},
 		},
 	}
-
-	if err := e.store.UpsertBatch(ctx, batch); err != nil {
-		return false, err
-	}
-	return true, nil
+	return e.store.UpsertBatch(ctx, batch)
 }
 
 func workloadHasPublicIP(workload graph.Node) bool {

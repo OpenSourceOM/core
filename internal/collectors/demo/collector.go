@@ -29,6 +29,8 @@ func AccountIDs() []string {
 // Collect returns a fixed sample environment. The attack path is
 // Internet → sg-web → web-1 → AdminRole → prod-db, and each hop has a reason.
 // worker-1 is private and only reaches the private bucket acme-assets.
+// web-1 lists log4j 2.14.1 and worker-1 lists 2.17.1, so CVE enrichment
+// attaches CVE-2021-44228 only to the exposed instance.
 // No cloud credentials required.
 func Collect() graph.Batch {
 	p := graph.MustProperties
@@ -75,6 +77,9 @@ func Collect() graph.Batch {
 					"public_ip_address": "203.0.113.21",
 					"instance_profile":  "web-1-profile",
 					"security_group":    "sg-web",
+					"packages": []any{
+						"cpe:2.3:a:apache:log4j:2.14.1:*:*:*:*:*:*:*",
+					},
 				}),
 			},
 			{
@@ -86,6 +91,9 @@ func Collect() graph.Batch {
 					"public_ip":        false,
 					"instance_profile": "worker-profile",
 					"security_group":   "sg-worker",
+					"packages": []any{
+						"cpe:2.3:a:apache:log4j:2.17.1:*:*:*:*:*:*:*",
+					},
 				}),
 			},
 			{
@@ -144,6 +152,7 @@ func Collect() graph.Batch {
 				Properties: p(map[string]any{
 					"k8s_kind":         "Service",
 					"k8s_service_type": "LoadBalancer",
+					"image":            "nginx:1.25.3",
 				}),
 			},
 		},

@@ -10,25 +10,26 @@ import (
 )
 
 type Config struct {
-	Env         string
-	LogLevel    string
-	PublicURL   string
-	APIPort     int
-	APISecret   string
-	DatabaseURL string
-	AWSRegion             string
-	AzureSubscriptionID   string
-	AzureLocation         string
-	GCPProjectID          string
-	GCPRegion             string
-	NVDAPIKey             string
-	K8sCluster            string
-	K8sNamespace          string
-	SlackWebhookURL       string
-	JiraURL               string
-	JiraEmail             string
-	JiraAPIToken          string
-	JiraProject           string
+	Env                 string
+	LogLevel            string
+	PublicURL           string
+	APIPort             int
+	APISecret           string
+	DatabaseURL         string
+	AWSRegion           string
+	AzureSubscriptionID string
+	AzureLocation       string
+	GCPProjectID        string
+	GCPRegion           string
+	NVDAPIKey           string
+	CVECatalog          string
+	K8sCluster          string
+	K8sNamespace        string
+	SlackWebhookURL     string
+	JiraURL             string
+	JiraEmail           string
+	JiraAPIToken        string
+	JiraProject         string
 }
 
 func Load() Config {
@@ -48,11 +49,11 @@ func Load() Config {
 	}
 
 	return Config{
-		Env:         getEnv("OM_ENV", "development"),
-		LogLevel:    getEnv("OM_LOG_LEVEL", "info"),
-		PublicURL:   getEnv("OM_PUBLIC_URL", "http://localhost:8080"),
-		APIPort:     port,
-		APISecret:   getEnv("OM_API_SECRET", "change-me-in-production"),
+		Env:                 getEnv("OM_ENV", "development"),
+		LogLevel:            getEnv("OM_LOG_LEVEL", "info"),
+		PublicURL:           getEnv("OM_PUBLIC_URL", "http://localhost:8080"),
+		APIPort:             port,
+		APISecret:           getEnv("OM_API_SECRET", "change-me-in-production"),
 		DatabaseURL:         databaseURL,
 		AWSRegion:           getEnv("AWS_REGION", "us-east-1"),
 		AzureSubscriptionID: getEnv("AZURE_SUBSCRIPTION_ID", ""),
@@ -60,13 +61,14 @@ func Load() Config {
 		GCPProjectID:        getEnv("GCP_PROJECT_ID", ""),
 		GCPRegion:           getEnv("GCP_REGION", "us-central1"),
 		NVDAPIKey:           getEnv("NVD_API_KEY", ""),
+		CVECatalog:          getEnv("OM_CVE_CATALOG", ""),
 		K8sCluster:          getEnv("K8S_CLUSTER", "default"),
-		K8sNamespace:          getEnv("K8S_NAMESPACE", ""),
-		SlackWebhookURL:       getEnv("SLACK_WEBHOOK_URL", ""),
-		JiraURL:               getEnv("JIRA_URL", ""),
-		JiraEmail:             getEnv("JIRA_EMAIL", ""),
-		JiraAPIToken:          getEnv("JIRA_API_TOKEN", ""),
-		JiraProject:           getEnv("JIRA_PROJECT", ""),
+		K8sNamespace:        getEnv("K8S_NAMESPACE", ""),
+		SlackWebhookURL:     getEnv("SLACK_WEBHOOK_URL", ""),
+		JiraURL:             getEnv("JIRA_URL", ""),
+		JiraEmail:           getEnv("JIRA_EMAIL", ""),
+		JiraAPIToken:        getEnv("JIRA_API_TOKEN", ""),
+		JiraProject:         getEnv("JIRA_PROJECT", ""),
 	}
 }
 
