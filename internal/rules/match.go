@@ -19,21 +19,17 @@ func packRunner(spec PackRule) func(context.Context, *graph.Store) ([]Match, err
 }
 
 func runPackRule(ctx context.Context, store *graph.Store, spec PackRule) ([]Match, error) {
-	nodes, err := store.ListNodes(ctx, spec.ResourceType, 500)
-	if err != nil {
-		return nil, err
-	}
 	var matches []Match
-	for _, node := range nodes {
+	err := store.ForEachNode(ctx, spec.ResourceType, func(node graph.Node) error {
 		if !matchProperties(node.Properties, spec.Match.Properties) {
-			continue
+			return nil
 		}
 		gctx, err := loadGraphContext(ctx, store, node.ID)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if !matchGraph(gctx, spec.Match.Graph) {
-			continue
+			return nil
 		}
 		matches = append(matches, Match{
 			RuleID:      spec.ID,
@@ -43,6 +39,10 @@ func runPackRule(ctx context.Context, store *graph.Store, spec PackRule) ([]Matc
 			BaseScore:   spec.BaseScore,
 			Context:     gctx,
 		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return matches, nil
 }

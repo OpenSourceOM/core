@@ -17,21 +17,17 @@ import (
 )
 
 type FindingRecord struct {
-	Timestamp    time.Time      `json:"timestamp"`
-	Finding      graph.Node     `json:"finding"`
-	AffectedID   string         `json:"affected_resource_id,omitempty"`
-	AffectedName string         `json:"affected_resource_name,omitempty"`
-	AffectedType string         `json:"affected_resource_type,omitempty"`
+	Timestamp    time.Time  `json:"timestamp"`
+	Finding      graph.Node `json:"finding"`
+	AffectedID   string     `json:"affected_resource_id,omitempty"`
+	AffectedName string     `json:"affected_resource_name,omitempty"`
+	AffectedType string     `json:"affected_resource_type,omitempty"`
 }
 
 func LoadFindingRecords(ctx context.Context, store *graph.Store) ([]FindingRecord, error) {
-	views, err := store.ListFindings(ctx, 500)
-	if err != nil {
-		return nil, err
-	}
 	now := time.Now().UTC()
-	records := make([]FindingRecord, 0, len(views))
-	for _, view := range views {
+	var records []FindingRecord
+	err := store.ForEachFinding(ctx, func(view graph.FindingView) error {
 		records = append(records, FindingRecord{
 			Timestamp:    now,
 			Finding:      view.Finding,
@@ -39,8 +35,9 @@ func LoadFindingRecords(ctx context.Context, store *graph.Store) ([]FindingRecor
 			AffectedName: view.AffectedResourceName,
 			AffectedType: view.AffectedResourceType,
 		})
-	}
-	return records, nil
+		return nil
+	})
+	return records, err
 }
 
 func WriteSIEM(w io.Writer, records []FindingRecord) error {
@@ -116,8 +113,8 @@ func CreateJiraIssues(ctx context.Context, cfg JiraConfig, records []FindingReco
 		severity, _ := record.Finding.Properties["severity"].(string)
 		payload := map[string]any{
 			"fields": map[string]any{
-				"project": map[string]string{"key": cfg.Project},
-				"summary": fmt.Sprintf("[%s] %s", strings.ToUpper(severity), title),
+				"project":   map[string]string{"key": cfg.Project},
+				"summary":   fmt.Sprintf("[%s] %s", strings.ToUpper(severity), title),
 				"issuetype": map[string]string{"name": "Task"},
 				"description": map[string]any{
 					"type":    "doc",

@@ -78,7 +78,12 @@ func (e *Enricher) EnrichCVE(ctx context.Context, opts Options) (Result, error) 
 
 func (e *Enricher) targetWorkloads(ctx context.Context, internetOnly bool) ([]graph.Node, error) {
 	if !internetOnly {
-		return e.store.ListNodes(ctx, graph.NodeWorkload, 500)
+		var workloads []graph.Node
+		err := e.store.ForEachNode(ctx, graph.NodeWorkload, func(node graph.Node) error {
+			workloads = append(workloads, node)
+			return nil
+		})
+		return workloads, err
 	}
 
 	ids, err := e.store.InternetReachableWorkloadIDs(ctx)
@@ -158,11 +163,11 @@ func (e *Enricher) attachExposureFinding(ctx context.Context, workload graph.Nod
 				Region:    workload.Region,
 				AccountID: workload.AccountID,
 				Properties: graph.MustProperties(map[string]any{
-					"finding_type":     "exposure",
-					"severity":         level,
-					"normalized_score": normalized,
-					"title":            "Workload reachable from the internet",
-					"description":      "This workload has a path from the internet via network controls.",
+					"finding_type":      "exposure",
+					"severity":          level,
+					"normalized_score":  normalized,
+					"title":             "Workload reachable from the internet",
+					"description":       "This workload has a path from the internet via network controls.",
 					"affected_resource": workload.ID,
 				}),
 			},

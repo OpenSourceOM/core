@@ -35,6 +35,9 @@ var pathsRunCmd = &cobra.Command{
 
 		fmt.Printf("Query: %s\n", result.Query)
 		fmt.Printf("%s\n\n", result.Summary)
+		if result.Truncated {
+			fmt.Printf("Results stop at the %s.\n\n", result.Truncation)
+		}
 		if len(result.Paths) == 0 {
 			fmt.Println("No paths found.")
 			return nil
