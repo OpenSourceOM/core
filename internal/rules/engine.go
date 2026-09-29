@@ -181,19 +181,15 @@ func (e *Engine) persistFinding(ctx context.Context, rule Rule, match Match, fin
 }
 
 func rulePublicDatastore(ctx context.Context, store *graph.Store) ([]Match, error) {
-	nodes, err := store.ListNodes(ctx, graph.NodeDatastore, 500)
-	if err != nil {
-		return nil, err
-	}
 	var matches []Match
-	for _, node := range nodes {
+	err := store.ForEachNode(ctx, graph.NodeDatastore, func(node graph.Node) error {
 		public, _ := node.Properties["public_access"].(bool)
 		if !public {
-			continue
+			return nil
 		}
 		gctx, err := loadGraphContext(ctx, store, node.ID)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		matches = append(matches, Match{
 			RuleID:      "cspm-public-datastore",
@@ -203,6 +199,10 @@ func rulePublicDatastore(ctx context.Context, store *graph.Store) ([]Match, erro
 			BaseScore:   70,
 			Context:     gctx,
 		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return matches, nil
 }

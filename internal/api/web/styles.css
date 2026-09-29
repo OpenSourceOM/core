@@ -114,7 +114,8 @@ h2 { margin: 0 0 0.75rem; font-size: 1rem; }
   color: var(--muted);
   font-size: 0.9rem;
 }
-.blast-radius.hidden, .detail-panel.hidden { display: none; }
+.blast-radius.hidden, .detail-panel.hidden, #partial-note.hidden { display: none; }
+#partial-note { margin: 0 0 0.75rem; }
 .detail-panel ol { margin: 0.4rem 0 0; padding-left: 1.2rem; }
 .detail-panel li { margin: 0.35rem 0; }
 #graph {

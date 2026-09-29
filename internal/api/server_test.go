@@ -72,6 +72,41 @@ func TestHandleHealth(t *testing.T) {
 	}
 }
 
+func TestParsePageLimit(t *testing.T) {
+	const max = 500
+	tests := []struct {
+		name    string
+		raw     string
+		want    int
+		wantErr bool
+	}{
+		{name: "default", want: max},
+		{name: "within max", raw: "10", want: 10},
+		{name: "at max", raw: "500", want: max},
+		{name: "above max", raw: "501", wantErr: true},
+		{name: "zero", raw: "0", wantErr: true},
+		{name: "negative", raw: "-1", wantErr: true},
+		{name: "not a number", raw: "all", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parsePageLimit(tt.raw, max, max)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parsePageLimit: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("limit = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSlackWebhookFromRequest(t *testing.T) {
 	t.Run("accepts webhook in JSON body", func(t *testing.T) {
 		req := httptest.NewRequest(

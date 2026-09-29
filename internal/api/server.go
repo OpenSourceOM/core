@@ -6,6 +6,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -212,59 +213,96 @@ func (s *Server) handleExportSlack(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
-	nodeType := r.URL.Query().Get("type")
-	limit := queryLimit(r, 500)
-	nodes, err := s.store.ListNodes(r.Context(), nodeType, limit)
+	limit, err := parsePageLimit(r.URL.Query().Get("limit"), graph.MaxNodePageSize, graph.MaxNodePageSize)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, nodes)
+	page, err := s.store.ListNodes(r.Context(), r.URL.Query().Get("type"), limit, r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeListError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
 }
 
 func (s *Server) handleEdges(w http.ResponseWriter, r *http.Request) {
-	limit := queryLimit(r, 2000)
-	edges, err := s.store.ListEdges(r.Context(), limit)
+	limit, err := parsePageLimit(r.URL.Query().Get("limit"), graph.MaxEdgePageSize, graph.MaxEdgePageSize)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, edges)
+	page, err := s.store.ListEdges(r.Context(), limit, r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeListError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
 }
 
 func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
-	nodes, err := s.store.ListNodes(r.Context(), "", queryLimit(r, 500))
+	nodeLimit, err := parsePageLimit(r.URL.Query().Get("limit"), graph.MaxNodePageSize, graph.MaxNodePageSize)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	edges, err := s.store.ListEdges(r.Context(), queryLimit(r, 2000))
+	edgeLimit, err := parsePageLimit(r.URL.Query().Get("edge_limit"), graph.MaxEdgePageSize, graph.MaxEdgePageSize)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, graph.GraphSnapshot{Nodes: nodes, Edges: edges})
+	nodes, err := s.store.ListNodes(r.Context(), "", nodeLimit, r.URL.Query().Get("node_cursor"))
+	if err != nil {
+		writeListError(w, err)
+		return
+	}
+	edges, err := s.store.ListEdges(r.Context(), edgeLimit, r.URL.Query().Get("edge_cursor"))
+	if err != nil {
+		writeListError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, graph.GraphSnapshot{
+		Nodes:           nodes.Nodes,
+		Edges:           edges.Edges,
+		NextNodesCursor: nodes.NextCursor,
+		NextEdgesCursor: edges.NextCursor,
+	})
 }
 
 func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
-	findings, err := s.store.ListFindings(r.Context(), queryLimit(r, 200))
+	limit, err := parsePageLimit(r.URL.Query().Get("limit"), graph.MaxFindingPageSize, graph.MaxFindingPageSize)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, findings)
+	page, err := s.store.ListFindings(r.Context(), limit, r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeListError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
 }
 
-func queryLimit(r *http.Request, fallback int) int {
-	raw := r.URL.Query().Get("limit")
+func parsePageLimit(raw string, fallback, max int) (int, error) {
 	if raw == "" {
-		return fallback
+		return fallback, nil
 	}
 	limit, err := strconv.Atoi(raw)
 	if err != nil || limit <= 0 {
-		return fallback
+		return 0, fmt.Errorf("limit must be a positive integer")
 	}
-	return limit
+	if limit > max {
+		return 0, fmt.Errorf("limit must be at most %d", max)
+	}
+	return limit, nil
+}
+
+func writeListError(w http.ResponseWriter, err error) {
+	status := http.StatusInternalServerError
+	if errors.Is(err, graph.ErrInvalidCursor) {
+		status = http.StatusBadRequest
+	}
+	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {

@@ -64,6 +64,11 @@ type PathResult struct {
 	Query   string   `json:"query"`
 	Paths   [][]Node `json:"paths"`
 	Summary string   `json:"summary"`
+	// Truncated is true when a path cap or depth cap dropped rows.
+	Truncated bool `json:"truncated"`
+	// Truncation names the cap that cut the result: "path cap", "depth cap",
+	// or "path cap and depth cap". Empty when Truncated is false.
+	Truncation string `json:"truncation,omitempty"`
 }
 
 type FindingView struct {
@@ -74,8 +79,33 @@ type FindingView struct {
 }
 
 type GraphSnapshot struct {
-	Nodes []Node `json:"nodes"`
-	Edges []Edge `json:"edges"`
+	Nodes           []Node `json:"nodes"`
+	Edges           []Edge `json:"edges"`
+	NextNodesCursor string `json:"next_nodes_cursor,omitempty"`
+	NextEdgesCursor string `json:"next_edges_cursor,omitempty"`
+}
+
+// Page sizes are ceilings. A caller cannot raise them to read the whole table
+// in one response. Follow NextCursor to read the rest.
+const (
+	MaxNodePageSize    = 500
+	MaxEdgePageSize    = 2000
+	MaxFindingPageSize = 200
+)
+
+type NodePage struct {
+	Nodes      []Node `json:"nodes"`
+	NextCursor string `json:"next_cursor,omitempty"`
+}
+
+type EdgePage struct {
+	Edges      []Edge `json:"edges"`
+	NextCursor string `json:"next_cursor,omitempty"`
+}
+
+type FindingPage struct {
+	Findings   []FindingView `json:"findings"`
+	NextCursor string        `json:"next_cursor,omitempty"`
 }
 
 func (n Node) PropertiesJSON() ([]byte, error) {

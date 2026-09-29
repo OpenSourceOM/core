@@ -56,6 +56,15 @@ func resolveQuery(name string) string {
 	return name
 }
 
+const (
+	internetWorkloadDepth  = 6
+	internetWorkloadCap    = 50
+	internetDatastoreDepth = 8
+	internetDatastoreCap   = 50
+	nodeListCap            = 100
+	pairPathCap            = 50
+)
+
 func (q *Querier) internetToWorkload(ctx context.Context) (PathResult, error) {
 	rows, err := q.store.pool.Query(ctx, `
 		WITH RECURSIVE paths AS (
@@ -76,22 +85,31 @@ func (q *Querier) internetToWorkload(ctx context.Context) (PathResult, error) {
 				p.depth + 1
 			FROM edges e
 			INNER JOIN paths p ON e.source_id = p.target_id
-			WHERE p.depth < 6
+			WHERE p.depth < $3
 			  AND NOT e.target_id = ANY (p.node_ids)
 		)
 		SELECT DISTINCT node_ids
 		FROM paths p
 		INNER JOIN nodes n ON n.id = p.target_id
 		WHERE n.type = $2
-		LIMIT 50
-	`, InternetNodeID, NodeWorkload)
+		LIMIT $4
+	`, InternetNodeID, NodeWorkload, internetWorkloadDepth, internetWorkloadCap+1)
 	if err != nil {
 		return PathResult{}, err
 	}
 	defer rows.Close()
 
-	return q.materializePaths(ctx, rows, "internet-to-workload",
-		"Attack paths from the internet to reachable workloads")
+	paths, err := q.readPathRows(ctx, rows)
+	if err != nil {
+		return PathResult{}, err
+	}
+	depthCut, err := q.depthCut(ctx, internetWorkloadDepth)
+	if err != nil {
+		return PathResult{}, err
+	}
+	return finishPaths("internet-to-workload",
+		"Attack paths from the internet to reachable workloads",
+		paths, internetWorkloadCap, depthCut), nil
 }
 
 func (q *Querier) internetToDatastore(ctx context.Context) (PathResult, error) {
@@ -114,7 +132,7 @@ func (q *Querier) internetToDatastore(ctx context.Context) (PathResult, error) {
 				p.depth + 1
 			FROM edges e
 			INNER JOIN paths p ON e.source_id = p.target_id
-			WHERE p.depth < 8
+			WHERE p.depth < $4
 			  AND NOT e.target_id = ANY (p.node_ids)
 		)
 		SELECT DISTINCT node_ids
@@ -126,15 +144,24 @@ func (q *Querier) internetToDatastore(ctx context.Context) (PathResult, error) {
 			FROM unnest(p.node_ids) AS nid
 			INNER JOIN nodes w ON w.id = nid AND w.type = $3
 		  )
-		LIMIT 50
-	`, InternetNodeID, NodeDatastore, NodeWorkload)
+		LIMIT $5
+	`, InternetNodeID, NodeDatastore, NodeWorkload, internetDatastoreDepth, internetDatastoreCap+1)
 	if err != nil {
 		return PathResult{}, err
 	}
 	defer rows.Close()
 
-	return q.materializePaths(ctx, rows, "internet-to-datastore",
-		"Attack paths from the internet through workloads to datastores")
+	paths, err := q.readPathRows(ctx, rows)
+	if err != nil {
+		return PathResult{}, err
+	}
+	depthCut, err := q.depthCut(ctx, internetDatastoreDepth)
+	if err != nil {
+		return PathResult{}, err
+	}
+	return finishPaths("internet-to-datastore",
+		"Attack paths from the internet through workloads to datastores",
+		paths, internetDatastoreCap, depthCut), nil
 }
 
 func (q *Querier) publicDatastores(ctx context.Context, queryName string) (PathResult, error) {
@@ -147,15 +174,20 @@ func (q *Querier) publicDatastores(ctx context.Context, queryName string) (PathR
 		 OR n.properties->>'public_access_block' = 'disabled'
 		  )
 		ORDER BY n.name
-		LIMIT 100
-	`, NodeDatastore)
+		LIMIT $2
+	`, NodeDatastore, nodeListCap+1)
 	if err != nil {
 		return PathResult{}, err
 	}
 	defer rows.Close()
 
-	return q.materializeSingleNodePaths(ctx, rows, queryName,
-		"Datastores flagged as publicly accessible or missing public access blocks")
+	paths, err := q.readPathRows(ctx, rows)
+	if err != nil {
+		return PathResult{}, err
+	}
+	return finishPaths(queryName,
+		"Datastores flagged as publicly accessible or missing public access blocks",
+		paths, nodeListCap, false), nil
 }
 
 func (q *Querier) adminIdentities(ctx context.Context) (PathResult, error) {
@@ -165,15 +197,20 @@ func (q *Querier) adminIdentities(ctx context.Context) (PathResult, error) {
 		WHERE n.type = $1
 		  AND n.properties->>'admin_access' = 'true'
 		ORDER BY n.name
-		LIMIT 100
-	`, NodeIdentity)
+		LIMIT $2
+	`, NodeIdentity, nodeListCap+1)
 	if err != nil {
 		return PathResult{}, err
 	}
 	defer rows.Close()
 
-	return q.materializeSingleNodePaths(ctx, rows, "admin-identities",
-		"Identities with broad administrative access")
+	paths, err := q.readPathRows(ctx, rows)
+	if err != nil {
+		return PathResult{}, err
+	}
+	return finishPaths("admin-identities",
+		"Identities with broad administrative access",
+		paths, nodeListCap, false), nil
 }
 
 func (q *Querier) adminToPublicDatastore(ctx context.Context, queryName string) (PathResult, error) {
@@ -188,8 +225,8 @@ func (q *Querier) adminToPublicDatastore(ctx context.Context, queryName string) 
 		 OR s.properties->>'public_access_block' = 'disabled'
 		  )
 		  AND i.properties->>'admin_access' = 'true'
-		LIMIT 50
-	`, EdgeCanAccess, NodeIdentity, NodeDatastore)
+		LIMIT $4
+	`, EdgeCanAccess, NodeIdentity, NodeDatastore, pairPathCap+1)
 	if err != nil {
 		return PathResult{}, err
 	}
@@ -199,36 +236,72 @@ func (q *Querier) adminToPublicDatastore(ctx context.Context, queryName string) 
 	if err != nil {
 		return PathResult{}, err
 	}
+	return finishPaths(queryName,
+		"Public datastores reachable by identities with admin-level permissions",
+		paths, pairPathCap, false), nil
+}
 
+// depthCut reports whether the walk stopped at maxDepth while an unused
+// outgoing edge remained. That edge may have led to a result the cap hid.
+func (q *Querier) depthCut(ctx context.Context, maxDepth int) (bool, error) {
+	var cut bool
+	err := q.store.pool.QueryRow(ctx, `
+		WITH RECURSIVE paths AS (
+			SELECT
+				e.target_id,
+				ARRAY[e.source_id, e.target_id] AS node_ids,
+				1 AS depth
+			FROM edges e
+			WHERE e.source_id = $1
+
+			UNION ALL
+
+			SELECT
+				e.target_id,
+				p.node_ids || e.target_id,
+				p.depth + 1
+			FROM edges e
+			INNER JOIN paths p ON e.source_id = p.target_id
+			WHERE p.depth < $2
+			  AND NOT e.target_id = ANY (p.node_ids)
+		)
+		SELECT EXISTS (
+			SELECT 1
+			FROM paths p
+			INNER JOIN edges e ON e.source_id = p.target_id
+			WHERE p.depth = $2
+			  AND NOT e.target_id = ANY (p.node_ids)
+		)
+	`, InternetNodeID, maxDepth).Scan(&cut)
+	return cut, err
+}
+
+func finishPaths(queryName, summary string, paths [][]Node, cap int, depthCut bool) PathResult {
+	pathCap := len(paths) > cap
+	if pathCap {
+		paths = paths[:cap]
+	}
+	truncated, note := truncation(pathCap, depthCut)
 	return PathResult{
-		Query:   queryName,
-		Paths:   paths,
-		Summary: "Public datastores reachable by identities with admin-level permissions",
-	}, nil
+		Query:      queryName,
+		Paths:      paths,
+		Summary:    summary,
+		Truncated:  truncated,
+		Truncation: note,
+	}
 }
 
-func (q *Querier) materializePaths(ctx context.Context, rows interface {
-	Next() bool
-	Scan(...any) error
-	Err() error
-}, queryName, summary string) (PathResult, error) {
-	paths, err := q.readPathRows(ctx, rows)
-	if err != nil {
-		return PathResult{}, err
+func truncation(pathCap, depthCap bool) (bool, string) {
+	switch {
+	case pathCap && depthCap:
+		return true, "path cap and depth cap"
+	case pathCap:
+		return true, "path cap"
+	case depthCap:
+		return true, "depth cap"
+	default:
+		return false, ""
 	}
-	return PathResult{Query: queryName, Paths: paths, Summary: summary}, nil
-}
-
-func (q *Querier) materializeSingleNodePaths(ctx context.Context, rows interface {
-	Next() bool
-	Scan(...any) error
-	Err() error
-}, queryName, summary string) (PathResult, error) {
-	paths, err := q.readPathRows(ctx, rows)
-	if err != nil {
-		return PathResult{}, err
-	}
-	return PathResult{Query: queryName, Paths: paths, Summary: summary}, nil
 }
 
 func (q *Querier) readPathRows(ctx context.Context, rows interface {

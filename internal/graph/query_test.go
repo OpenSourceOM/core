@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -61,6 +62,9 @@ func TestInternetToDatastoreIncludesManagedDatabase(t *testing.T) {
 	}
 	if len(result.Paths) != 1 {
 		t.Fatalf("paths = %d, want the one managed-database path", len(result.Paths))
+	}
+	if result.Truncated {
+		t.Fatalf("Truncated = true (%s), want a complete result", result.Truncation)
 	}
 	var got []string
 	for _, node := range result.Paths[0] {
@@ -199,6 +203,102 @@ func publicDatastoreFixture() graph.Batch {
 			access(gcsPublicID),
 			access(s3PrivateID),
 		},
+	}
+}
+
+func TestInternetToWorkloadReportsPathCap(t *testing.T) {
+	ctx := context.Background()
+	store := openQueryFixture(t)
+
+	const pathCap = 50
+	nodes := []graph.Node{{ID: graph.InternetNodeID, Type: graph.NodeInternet, Name: "Internet"}}
+	edges := make([]graph.Edge, 0, pathCap+1)
+	for i := 0; i < pathCap+1; i++ {
+		id := fmt.Sprintf("aws:111:us-east-1:workload:w-%03d", i)
+		nodes = append(nodes, graph.Node{ID: id, Type: graph.NodeWorkload, Name: fmt.Sprintf("w-%03d", i), Provider: "aws"})
+		edges = append(edges, graph.Edge{
+			ID:       graph.InternetNodeID + "|" + id + "|" + graph.EdgeReachable,
+			SourceID: graph.InternetNodeID,
+			TargetID: id,
+			Type:     graph.EdgeReachable,
+		})
+	}
+	if err := store.UpsertBatch(ctx, graph.Batch{Nodes: nodes, Edges: edges}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	result, err := graph.NewQuerier(store).Run(ctx, "internet-to-workload")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(result.Paths) != pathCap {
+		t.Fatalf("paths = %d, want the cap %d", len(result.Paths), pathCap)
+	}
+	if !result.Truncated || result.Truncation != "path cap" {
+		t.Fatalf("truncation = %v %q, want path cap", result.Truncated, result.Truncation)
+	}
+}
+
+func TestInternetToWorkloadReportsDepthCap(t *testing.T) {
+	ctx := context.Background()
+	store := openQueryFixture(t)
+
+	const near = "aws:111:us-east-1:workload:near"
+	const deep = "aws:111:us-east-1:workload:deep"
+	nodes := []graph.Node{
+		{ID: graph.InternetNodeID, Type: graph.NodeInternet, Name: "Internet"},
+		{ID: near, Type: graph.NodeWorkload, Name: "near", Provider: "aws"},
+		{ID: deep, Type: graph.NodeWorkload, Name: "deep", Provider: "aws"},
+	}
+	edges := []graph.Edge{{
+		ID:       graph.InternetNodeID + "|" + near + "|" + graph.EdgeReachable,
+		SourceID: graph.InternetNodeID,
+		TargetID: near,
+		Type:     graph.EdgeReachable,
+	}}
+	const depthCap = 6
+	prev := graph.InternetNodeID
+	for i := 1; i <= depthCap; i++ {
+		id := fmt.Sprintf("aws:111:us-east-1:network:hop-%d", i)
+		nodes = append(nodes, graph.Node{ID: id, Type: graph.NodeNetwork, Name: fmt.Sprintf("hop-%d", i), Provider: "aws"})
+		edges = append(edges, graph.Edge{
+			ID:       prev + "|" + id + "|" + graph.EdgeReachable,
+			SourceID: prev,
+			TargetID: id,
+			Type:     graph.EdgeReachable,
+		})
+		prev = id
+	}
+	edges = append(edges, graph.Edge{
+		ID:       prev + "|" + deep + "|" + graph.EdgeReachable,
+		SourceID: prev,
+		TargetID: deep,
+		Type:     graph.EdgeReachable,
+	})
+	if err := store.UpsertBatch(ctx, graph.Batch{Nodes: nodes, Edges: edges}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	result, err := graph.NewQuerier(store).Run(ctx, "internet-to-workload")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !result.Truncated || result.Truncation != "depth cap" {
+		t.Fatalf("truncation = %v %q, want depth cap", result.Truncated, result.Truncation)
+	}
+	var sawNear, sawDeep bool
+	for _, path := range result.Paths {
+		for _, node := range path {
+			if node.ID == near {
+				sawNear = true
+			}
+			if node.ID == deep {
+				sawDeep = true
+			}
+		}
+	}
+	if !sawNear || sawDeep {
+		t.Fatalf("near=%v deep=%v, want the shallow workload only", sawNear, sawDeep)
 	}
 }
 

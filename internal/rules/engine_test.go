@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -90,6 +91,51 @@ func TestRunDropsStaleFindingAndKeepsOthers(t *testing.T) {
 	requireRuleNode(t, ctx, store, staleID, false)
 	requireRuleNode(t, ctx, store, cveID, true)
 	requireRuleNode(t, ctx, store, otherID, true)
+}
+
+func TestRulesPagePastTheFirstPage(t *testing.T) {
+	ctx := context.Background()
+	store := openRulesFixture(t)
+
+	const (
+		account  = "111122223333"
+		publicID = "aws:111122223333:global:datastore:public-last"
+	)
+	nodes := make([]graph.Node, 0, graph.MaxNodePageSize+1)
+	for i := 0; i < graph.MaxNodePageSize; i++ {
+		nodes = append(nodes, graph.Node{
+			ID:         fmt.Sprintf("aws:111122223333:global:datastore:n-%04d", i),
+			Type:       graph.NodeDatastore,
+			Name:       fmt.Sprintf("n-%04d", i),
+			Provider:   "aws",
+			AccountID:  account,
+			Properties: map[string]any{"public_access": false},
+		})
+	}
+	nodes = append(nodes, graph.Node{
+		ID:         publicID,
+		Type:       graph.NodeDatastore,
+		Name:       "zzz-public",
+		Provider:   "aws",
+		AccountID:  account,
+		Properties: map[string]any{"public_access": true},
+	})
+	if err := store.UpsertBatch(ctx, graph.Batch{Nodes: nodes}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	for _, ruleID := range []string{"cspm-public-datastore", "cis-s3-public-access"} {
+		t.Run(ruleID, func(t *testing.T) {
+			result, err := rules.NewEngine(store).Run(ctx, ruleID)
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+			if result.FindingsCreated != 1 {
+				t.Fatalf("FindingsCreated = %d, want the datastore past the first page", result.FindingsCreated)
+			}
+			requireRuleNode(t, ctx, store, "finding:"+ruleID+":"+publicID, true)
+		})
+	}
 }
 
 func requireRuleNode(t *testing.T, ctx context.Context, store *graph.Store, id string, want bool) {

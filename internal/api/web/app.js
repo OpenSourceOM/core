@@ -73,10 +73,13 @@ function renderStats(stats) {
   `).join("");
 }
 
-function renderFindings(findings) {
+function renderFindings(findings, partial) {
   const el = document.getElementById("findings");
+  const partialNote = partial
+    ? "<p class=\"meta\">This list is partial. More findings are past the pages loaded here.</p>"
+    : "";
   if (!findings.length) {
-    el.innerHTML = "<p class=\"meta\">No findings yet. Run <code>om rules run</code> or <code>om enrich cve</code> after a scan.</p>";
+    el.innerHTML = "<p class=\"meta\">No findings yet. Run <code>om rules run</code> or <code>om enrich cve</code> after a scan.</p>" + partialNote;
     return;
   }
   el.innerHTML = findings.map((item) => {
@@ -92,7 +95,7 @@ function renderFindings(findings) {
         <div class="meta">${item.affected_resource_name || "Unknown resource"}</div>
       </article>
     `;
-  }).join("");
+  }).join("") + partialNote;
 
   el.querySelectorAll(".finding").forEach((card) => {
     card.addEventListener("click", () => highlightNode(card.dataset.target));
@@ -173,15 +176,18 @@ function escapeHTML(value) {
     .replaceAll(">", "&gt;");
 }
 
-function renderPathDetail(paths, edges) {
+function renderPathDetail(paths, edges, truncation) {
   const panel = document.getElementById("path-detail");
-  if (!paths.length) {
+  if (!paths.length && !truncation) {
     panel.classList.add("hidden");
     panel.innerHTML = "";
     return;
   }
   panel.classList.remove("hidden");
-  panel.innerHTML = paths.map((path, index) => {
+  const note = truncation
+    ? `<p class="meta">Results stop at the ${escapeHTML(truncation)}.</p>`
+    : "";
+  panel.innerHTML = note + paths.map((path, index) => {
     const hops = [];
     for (let i = 1; i < path.length; i++) {
       const edge = findEdge(edges, path[i - 1].id, path[i].id);
@@ -221,20 +227,50 @@ function pathGraph(paths, snapshotEdges) {
   return { nodes, edges };
 }
 
+async function fetchPages(path, listKey) {
+  const items = [];
+  let cursor = "";
+  const maxPages = 50;
+  for (let page = 0; page < maxPages; page++) {
+    const params = new URLSearchParams();
+    if (cursor) params.set("cursor", cursor);
+    const qs = params.toString();
+    const body = await fetchJSON(qs ? `${path}?${qs}` : path);
+    items.push(...(body[listKey] || []));
+    cursor = body.next_cursor || "";
+    if (!cursor) return { items, partial: false };
+  }
+  return { items, partial: true };
+}
+
+function renderPartialGraph(partial) {
+  const note = document.getElementById("partial-note");
+  if (!partial) {
+    note.textContent = "";
+    note.classList.add("hidden");
+    return;
+  }
+  note.classList.remove("hidden");
+  note.textContent = "This view is partial. More nodes or edges are past the pages loaded here.";
+}
+
 async function refresh() {
   const query = document.getElementById("query-select").value;
-  const [stats, findings, snapshot] = await Promise.all([
+  const [stats, findingPage, nodePage, edgePage] = await Promise.all([
     fetchJSON("/v1/graph/stats"),
-    fetchJSON("/v1/findings"),
-    fetchJSON("/v1/graph/snapshot"),
+    fetchPages("/v1/findings", "findings"),
+    fetchPages("/v1/graph/nodes", "nodes"),
+    fetchPages("/v1/graph/edges", "edges"),
   ]);
   renderStats(stats);
-  renderFindings(findings);
+  renderFindings(findingPage.items, findingPage.partial);
+  renderPartialGraph(nodePage.partial || edgePage.partial);
+  const snapshot = { nodes: nodePage.items, edges: edgePage.items };
 
   if (query) {
     const result = await fetchJSON(`/v1/graph/query?name=${encodeURIComponent(query)}`);
     const paths = result.paths || [];
-    renderPathDetail(paths, snapshot.edges);
+    renderPathDetail(paths, snapshot.edges, result.truncated ? result.truncation : "");
     const built = pathGraph(paths, snapshot.edges);
     renderGraph(built.nodes, built.edges);
     return;

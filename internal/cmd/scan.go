@@ -156,14 +156,14 @@ var scanDemoCmd = &cobra.Command{
 			fmt.Printf("  %s → %s (%s)\n    %s\n", hop.SourceName, hop.TargetName, hop.Type, hop.Reason)
 		}
 
-		findings, err := store.ListFindings(ctx, 200)
+		findings, err := store.ListFindings(ctx, 200, "")
 		if err != nil {
 			return err
 		}
 		fmt.Println("\nHighest findings:")
 		shown := 0
 		demoAccounts := map[string]bool{demo.AccountID: true, demo.K8sAccountID: true}
-		for _, view := range findings {
+		for _, view := range findings.Findings {
 			if !demoAccounts[view.Finding.AccountID] {
 				continue
 			}
