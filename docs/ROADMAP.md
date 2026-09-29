@@ -43,7 +43,7 @@ Phases 0–2 shipped the walking skeleton. Exposure and identity edges now follo
 
 Correctness and operability come first:
 
-- **Self-hosted operability** — [#22](https://github.com/OpenSourceOM/core/issues/22), [#32](https://github.com/OpenSourceOM/core/issues/32), [#34](https://github.com/OpenSourceOM/core/issues/34)
+- **Self-hosted operability** — read APIs honor `OM_API_SECRET` ([#22](https://github.com/OpenSourceOM/core/issues/22)). Still open: [#32](https://github.com/OpenSourceOM/core/issues/32), [#34](https://github.com/OpenSourceOM/core/issues/34)
 
 The path, in order:
 

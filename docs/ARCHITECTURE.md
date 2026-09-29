@@ -39,7 +39,7 @@ SPDX-License-Identifier: Apache-2.0
 | **CSPM rules** | `internal/rules/` | Built-in policies plus embedded YAML packs |
 | **CVE enrichment** | `internal/enrichment/` | NVD lookup, CVSS → normalized severity |
 | **Exports** | `internal/export/` | SIEM JSONL, Slack webhooks, Jira issues |
-| **API** | `internal/api/` | REST + embedded console at `/`; shared API secret for writes |
+| **API** | `internal/api/` | REST + embedded console at `/`; shared API secret on `/v1` except health |
 | **CLI** | `cmd/om/`, `internal/cmd/` | `migrate`, `serve`, `scan`, `rules`, `identity`, `export`, … |
 | **Helm** | `deploy/helm/opensourceom/` | API + optional in-cluster Postgres |
 
@@ -74,7 +74,7 @@ See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings
 
 Making the skeleton true, in order:
 
-- Self-hosted operability (read auth, health, scheduled scans, console)
+- Self-hosted operability (scheduled scans, console). Read routes honor the API secret.
 - CVE enrichment tied to workload inventory
 - Crown-jewel mark on datastores
 - Attack path as the finding
