@@ -41,6 +41,11 @@ async function runRules() {
   }
 }
 
+function loadAPIKey() {
+  const input = document.getElementById("api-key");
+  input.value = localStorage.getItem("om_api_key") || "";
+}
+
 function saveAPIKey() {
   const input = document.getElementById("api-key");
   const key = input.value.trim();
@@ -296,6 +301,7 @@ document.getElementById("rules-btn").addEventListener("click", runRules);
 document.getElementById("save-api-key-btn").addEventListener("click", saveAPIKey);
 
 (async function init() {
+  loadAPIKey();
   try {
     await loadQueries();
     await refresh();
