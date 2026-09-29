@@ -41,8 +41,8 @@ Multi-tenant RBAC (admin/viewer roles, account scoping) was considered for Phase
 
 ### API authentication (OSS)
 
-- Write endpoints (`POST /v1/ingest`, `POST /v1/rules/run`, `POST /v1/export/slack`) require `OM_API_SECRET` via `Authorization: Bearer` or `X-API-Key`.
-- Read endpoints are open when no secret is configured (local dev); production should always set `OM_API_SECRET`.
+- When `OM_API_SECRET` is set, every `/v1/*` route except `GET /v1/health` requires `Authorization: Bearer` or `X-API-Key`.
+- An empty secret leaves the API open for local development. Production and the Helm chart set the secret.
 
 ## Consequences
 

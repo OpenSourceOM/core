@@ -58,7 +58,25 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/export/slack", s.handleExportSlack)
 	mux.Handle("/", uiHandler())
 	mux.Handle("/ui/", http.StripPrefix("/ui/", uiHandler()))
-	return mux
+	return s.requireAPIAuth(mux)
+}
+
+// requireAPIAuth demands the shared secret on every /v1 route except
+// GET /v1/health. The console and other non-API paths stay open so the
+// page can load; it sends the key from localStorage on API calls.
+// An empty secret leaves the API open for local development.
+func (s *Server) requireAPIAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/v1/") && !s.authorize(r) {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) ListenAndServe(addr string) error {
@@ -87,11 +105,6 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
-	if !s.authorize(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-		return
-	}
-
 	var batch graph.Batch
 	if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json body"})
@@ -144,10 +157,6 @@ func (s *Server) handleRulesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRulesRun(w http.ResponseWriter, r *http.Request) {
-	if !s.authorize(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-		return
-	}
 	ruleID := r.URL.Query().Get("id")
 	var result rules.RunResult
 	var err error
@@ -187,11 +196,6 @@ func (s *Server) handleBlastRadius(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleExportSlack(w http.ResponseWriter, r *http.Request) {
-	if !s.authorize(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-		return
-	}
-
 	webhook, err := slackWebhookFromRequest(r)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})

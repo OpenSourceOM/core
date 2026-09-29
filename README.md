@@ -120,6 +120,8 @@ go build -o example-collector ./examples/collector
 open http://localhost:8080
 ```
 
+Compose sets `OM_API_SECRET`. The console sends that value as `X-API-Key` from `localStorage.om_api_key` on every `/v1` call except health. Leave the secret empty to keep local API calls open.
+
 **API endpoints:** `GET /v1/health`, `POST /v1/ingest`, `GET /v1/findings`, `GET /v1/graph/snapshot`, `POST /v1/rules/run`, `GET /v1/identity/blast-radius`
 
 **Multi-cloud scan:**

@@ -72,6 +72,62 @@ func TestHandleHealth(t *testing.T) {
 	}
 }
 
+func TestAPISecretGatesV1Routes(t *testing.T) {
+	server := &Server{health: fakeHealthChecker{}, apiSecret: "secret"}
+	handler := server.Handler()
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		header     string
+		value      string
+		wantStatus int
+	}{
+		{name: "health open without key", method: http.MethodGet, path: "/v1/health", wantStatus: http.StatusOK},
+		{name: "rules list denied without key", method: http.MethodGet, path: "/v1/rules", wantStatus: http.StatusUnauthorized},
+		{name: "rules list allowed with api key", method: http.MethodGet, path: "/v1/rules", header: "X-API-Key", value: "secret", wantStatus: http.StatusOK},
+		{name: "rules list allowed with bearer", method: http.MethodGet, path: "/v1/rules", header: "Authorization", value: "Bearer secret", wantStatus: http.StatusOK},
+		{name: "rules list denied with wrong key", method: http.MethodGet, path: "/v1/rules", header: "X-API-Key", value: "nope", wantStatus: http.StatusUnauthorized},
+		{name: "stats denied without key", method: http.MethodGet, path: "/v1/graph/stats", wantStatus: http.StatusUnauthorized},
+		{name: "queries denied without key", method: http.MethodGet, path: "/v1/graph/queries", wantStatus: http.StatusUnauthorized},
+		{name: "nodes denied without key", method: http.MethodGet, path: "/v1/graph/nodes", wantStatus: http.StatusUnauthorized},
+		{name: "edges denied without key", method: http.MethodGet, path: "/v1/graph/edges", wantStatus: http.StatusUnauthorized},
+		{name: "snapshot denied without key", method: http.MethodGet, path: "/v1/graph/snapshot", wantStatus: http.StatusUnauthorized},
+		{name: "findings denied without key", method: http.MethodGet, path: "/v1/findings", wantStatus: http.StatusUnauthorized},
+		{name: "query denied without key", method: http.MethodGet, path: "/v1/graph/query?name=internet-to-datastore", wantStatus: http.StatusUnauthorized},
+		{name: "blast radius denied without key", method: http.MethodGet, path: "/v1/identity/blast-radius", wantStatus: http.StatusUnauthorized},
+		{name: "ingest denied without key", method: http.MethodPost, path: "/v1/ingest", wantStatus: http.StatusUnauthorized},
+		{name: "rules run denied without key", method: http.MethodPost, path: "/v1/rules/run", wantStatus: http.StatusUnauthorized},
+		{name: "slack export denied without key", method: http.MethodPost, path: "/v1/export/slack", wantStatus: http.StatusUnauthorized},
+		{name: "console stays open", method: http.MethodGet, path: "/", wantStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+			if tt.header != "" {
+				request.Header.Set(tt.header, tt.value)
+			}
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, request)
+			if recorder.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", recorder.Code, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestAPISecretUnsetLeavesRoutesOpen(t *testing.T) {
+	handler := (&Server{}).Handler()
+	request := httptest.NewRequest(http.MethodGet, "/v1/rules", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+}
+
 func TestParsePageLimit(t *testing.T) {
 	const max = 500
 	tests := []struct {
