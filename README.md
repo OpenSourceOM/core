@@ -21,7 +21,7 @@ OpenSourceOM Core is the platform behind [opensourceom.org](https://opensourceom
 
 Traditional scanners flood you with CVEs and misconfigurations. OpenSourceOM connects the dots — showing which findings sit on paths from the internet to your sensitive data and privileged identities.
 
-> **Status:** Early development (Phase 3). CSPM rules, identity blast radius, Kubernetes ingest, exports, a collector plugin SDK, and a Helm chart are available. Current work is graph accuracy, operability, rule packs, and cloud audit ingest. See the [roadmap](./docs/ROADMAP.md).
+> **Status:** Early development (Phase 3). CSPM rules, identity blast radius, Kubernetes ingest, exports, a collector plugin SDK, and a Helm chart are available. CVE findings follow package and image inventory. Current work is graph accuracy: crown-jewel datastores, attack-path findings, rule packs, and cloud audit ingest. See the [roadmap](./docs/ROADMAP.md).
 
 ## Why this exists
 
@@ -110,8 +110,10 @@ go build -o example-collector ./examples/collector
 # Identity blast radius
 ./om identity blast-radius --name AdminRole
 
-# Enrich with CVE data (NVD API)
-./om enrich cve --cve CVE-2021-44228
+# Enrich with CVE data that matches workload inventory.
+# The demo graph lists log4j 2.14.1 on web-1 and 2.17.1 on worker-1.
+# NVD matches the CPE. This catalog is the offline equivalent.
+./om enrich cve --catalog examples/cve-catalog.json
 
 # Export findings
 ./om export findings run --format siem --out findings.jsonl
@@ -158,7 +160,7 @@ Full documentation: [opensourceom.org](https://opensourceom.org) (docs at [opens
 | **0** | Graph schema v0, AWS collector, ingest API, `om` CLI |
 | **1** | Attack path queries, CVE enrichment, web UI, Azure/GCP collectors |
 | **2** | CSPM rules, blast radius, K8s connector, exports |
-| **3** *(now)* | Graph accuracy, inventory-backed CVEs, self-hosted operability, rule packs, cloud audit ingest |
+| **3** *(now)* | Graph accuracy, crown-jewel datastores, attack-path findings, rule packs, cloud audit ingest |
 
 Details: [docs/ROADMAP.md](./docs/ROADMAP.md)
 

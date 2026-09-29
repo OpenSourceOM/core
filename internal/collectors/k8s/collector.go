@@ -124,17 +124,21 @@ func (c *Collector) collectPods(ctx context.Context, client *kubernetes.Clientse
 	pods := make([]collectedPod, 0, len(out.Items))
 	for _, pod := range out.Items {
 		workloadID := c.nodeID("workload", namespace+"/"+pod.Name)
+		props := map[string]any{
+			"namespace": namespace,
+			"phase":     string(pod.Status.Phase),
+			"node":      pod.Spec.NodeName,
+		}
+		if images := podImages(pod); len(images) > 0 {
+			props["images"] = images
+		}
 		batch.Nodes = append(batch.Nodes, graph.Node{
-			ID:        workloadID,
-			Type:      graph.NodeWorkload,
-			Name:      pod.Name,
-			Provider:  "kubernetes",
-			AccountID: c.Cluster,
-			Properties: graph.MustProperties(map[string]any{
-				"namespace": namespace,
-				"phase":     string(pod.Status.Phase),
-				"node":      pod.Spec.NodeName,
-			}),
+			ID:         workloadID,
+			Type:       graph.NodeWorkload,
+			Name:       pod.Name,
+			Provider:   "kubernetes",
+			AccountID:  c.Cluster,
+			Properties: graph.MustProperties(props),
 		})
 		batch.Edges = append(batch.Edges, graph.Edge{
 			ID:       c.edgeID(workloadID, nsID, graph.EdgeAffects),

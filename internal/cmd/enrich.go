@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"github.com/OpenSourceOM/core/internal/enrichment"
-	"github.com/OpenSourceOM/core/internal/enrichment/nvd"
 	"github.com/spf13/cobra"
 )
 
@@ -19,11 +18,12 @@ var enrichCmd = &cobra.Command{
 var (
 	enrichCVEIDs       []string
 	enrichInternetOnly bool
+	enrichCatalog      string
 )
 
 var enrichCVECmd = &cobra.Command{
 	Use:   "cve",
-	Short: "Create CVE and exposure findings for workloads",
+	Short: "Create CVE findings for workload packages and images",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := loadConfig()
 		store, err := openGraphStore(cmd.Context(), cfg)
@@ -32,7 +32,15 @@ var enrichCVECmd = &cobra.Command{
 		}
 		defer store.Close()
 
-		enricher := enrichment.New(store, nvd.NewClient(cfg.NVDAPIKey))
+		catalogPath := enrichCatalog
+		if catalogPath == "" {
+			catalogPath = cfg.CVECatalog
+		}
+		source, err := enrichment.OpenSource(cfg.NVDAPIKey, catalogPath)
+		if err != nil {
+			return err
+		}
+		enricher := enrichment.New(store, source)
 		result, err := enricher.EnrichCVE(cmd.Context(), enrichment.Options{
 			CVEIDs:       enrichCVEIDs,
 			InternetOnly: enrichInternetOnly,
@@ -50,7 +58,8 @@ var enrichCVECmd = &cobra.Command{
 }
 
 func init() {
-	enrichCVECmd.Flags().StringSliceVar(&enrichCVEIDs, "cve", nil, "CVE IDs to attach (repeatable)")
+	enrichCVECmd.Flags().StringSliceVar(&enrichCVEIDs, "cve", nil, "CVE IDs to consider (repeatable). Each id still has to match inventory")
 	enrichCVECmd.Flags().BoolVar(&enrichInternetOnly, "internet-only", true, "Only enrich internet-reachable workloads")
+	enrichCVECmd.Flags().StringVar(&enrichCatalog, "catalog", "", "JSON CVE catalog to use instead of NVD")
 	enrichCmd.AddCommand(enrichCVECmd)
 }

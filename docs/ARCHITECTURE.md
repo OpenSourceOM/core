@@ -37,7 +37,7 @@ SPDX-License-Identifier: Apache-2.0
 | **Path queries** | `internal/graph/query.go` | Named queries including `internet-to-datastore` |
 | **Blast radius** | `internal/graph/blastradius.go` | Reachability from identities over `CAN_ACCESS` / `ASSUMES` |
 | **CSPM rules** | `internal/rules/` | Built-in policies plus embedded YAML packs |
-| **CVE enrichment** | `internal/enrichment/` | NVD lookup, CVSS → normalized severity |
+| **CVE enrichment** | `internal/enrichment/` | Match workload packages and images, then NVD or a catalog for CVSS |
 | **Exports** | `internal/export/` | SIEM JSONL, Slack webhooks, Jira issues |
 | **API** | `internal/api/` | REST + embedded console at `/`; shared API secret on `/v1` except health |
 | **CLI** | `cmd/om/`, `internal/cmd/` | `migrate`, `serve`, `scan`, `rules`, `identity`, `export`, … |
@@ -75,7 +75,7 @@ See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings
 Making the skeleton true, in order:
 
 - Self-hosted operability (console). Read routes honor the API secret, and the Helm chart schedules collectors when credentials are set.
-- CVE enrichment tied to workload inventory
+- CVE enrichment tied to workload inventory. `om enrich cve` writes a finding only when a workload package or image matches.
 - Crown-jewel mark on datastores
 - Attack path as the finding
 - Cloud audit logs as graph context

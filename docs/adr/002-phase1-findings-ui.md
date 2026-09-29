@@ -22,10 +22,11 @@ Phase 0 delivered ingest, storage, and basic path queries. Phase 1 needs priorit
 
 ### CVE enrichment
 
-- `om enrich cve` creates `Finding` nodes with normalized severity (critical/high/medium/low/info).
-- CVSS scores fetched from the [NVD API 2.0](https://nvd.nist.gov/developers/vulnerabilities); optional `NVD_API_KEY` for rate limits.
-- Findings link to workloads via `VIOLATES` edges.
-- Auto-creates an "Internet-exposed workload" finding for reachable workloads with public IPs.
+- `om enrich cve` creates `Finding` nodes with normalized severity (critical/high/medium/low/info) only when workload inventory matches the CVE.
+- Collectors may set `packages` (CPE 2.3 or package URL), `image`, and `images` on a workload. The Kubernetes collector copies container image refs. The AWS collector copies the AMI id.
+- CVSS scores for CPE matches come from the [NVD API 2.0](https://nvd.nist.gov/developers/vulnerabilities); optional `NVD_API_KEY` for rate limits. `OM_CVE_CATALOG` or `--catalog` replaces NVD and is what matches package URLs and image references.
+- Findings link to workloads via `VIOLATES` edges. The finding property `matched_identifier` is the package or image that selected the CVE.
+- Auto-creates an "Internet-exposed workload" finding for reachable workloads with public IPs. That finding does not require package inventory.
 
 ### Web UI
 
@@ -44,7 +45,7 @@ Auth uses each cloud's default credential chain (`DefaultAzureCredential`, GCP A
 
 ## Consequences
 
-- Heuristic edges and default Log4Shell CVE for demo enrichment were placeholders. Azure and GCP `CAN_ACCESS` for object storage now follow role-assignment scope and IAM bindings; the same-account link from every internet-facing workload to every public datastore has been removed. Managed-database `CAN_ACCESS` follows the network path described in [ADR 001](./001-graph-schema-v0.md). `REACHABLE` for those clouds requires an internet path and a firewall or NSG allow, including a private instance behind a public load balancer. The Log4Shell default remains a placeholder.
+- Heuristic edges and the default Log4Shell CVE for demo enrichment were placeholders. Azure and GCP `CAN_ACCESS` for object storage now follow role-assignment scope and IAM bindings; the same-account link from every internet-facing workload to every public datastore has been removed. Managed-database `CAN_ACCESS` follows the network path described in [ADR 001](./001-graph-schema-v0.md). `REACHABLE` for those clouds requires an internet path and a firewall or NSG allow, including a private instance behind a public load balancer. `om enrich cve` no longer stamps CVE-2021-44228 on every workload. The demo instance web-1 carries log4j 2.14.1, so that CVE is attached only because the sample inventory matches it.
 - Azure VM public IP detection follows the NIC to the address. A public IP with no NSG is reachable. A public IP whose NSG or subnet NSG does not allow the internet is not. GCP sets `REACHABLE` only when a public address or external load balancer is also allowed by a firewall rule.
 - UI is static HTML/JS embedded in Go — a dedicated frontend package may split out later.
 

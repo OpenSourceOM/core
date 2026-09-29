@@ -170,22 +170,26 @@ func (c *Collector) collectEC2(ctx context.Context, client ec2.DescribeInstances
 				name := instanceName(instance)
 				workloadID := c.nodeID("workload", instanceID)
 
+				props := map[string]any{
+					"resource_id":       instanceID,
+					"instance_type":     string(instance.InstanceType),
+					"state":             string(instance.State.Name),
+					"public_ip":         instanceHasPublicIP(instance),
+					"public_ip_address": aws.ToString(instance.PublicIpAddress),
+					"imdsv2":            instanceIMDSv2Required(instance),
+					"os_platform":       ec2Platform(instance),
+				}
+				if ami := aws.ToString(instance.ImageId); ami != "" {
+					props["image"] = ami
+				}
 				batch.Nodes = append(batch.Nodes, graph.Node{
-					ID:        workloadID,
-					Type:      graph.NodeWorkload,
-					Name:      name,
-					Provider:  "aws",
-					Region:    c.Region,
-					AccountID: c.AccountID,
-					Properties: graph.MustProperties(map[string]any{
-						"resource_id":       instanceID,
-						"instance_type":     string(instance.InstanceType),
-						"state":             string(instance.State.Name),
-						"public_ip":         instanceHasPublicIP(instance),
-						"public_ip_address": aws.ToString(instance.PublicIpAddress),
-						"imdsv2":            instanceIMDSv2Required(instance),
-						"os_platform":       ec2Platform(instance),
-					}),
+					ID:         workloadID,
+					Type:       graph.NodeWorkload,
+					Name:       name,
+					Provider:   "aws",
+					Region:     c.Region,
+					AccountID:  c.AccountID,
+					Properties: graph.MustProperties(props),
 				})
 
 				if instance.IamInstanceProfile != nil {
