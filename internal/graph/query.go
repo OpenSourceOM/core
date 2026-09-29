@@ -11,11 +11,17 @@ import (
 )
 
 var NamedQueries = map[string]string{
-	"internet-to-workload":            "Paths from the internet to reachable workloads",
-	"internet-to-datastore":           "Paths from the internet through workloads to datastores",
-	"public-s3-buckets":               "S3 buckets with public exposure indicators",
-	"admin-identities":                "IAM roles with broad administrative permissions",
-	"toxic-s3-public-with-admin-role": "Public S3 buckets linked to admin-capable identities",
+	"internet-to-workload":      "Paths from the internet to reachable workloads",
+	"internet-to-datastore":     "Paths from the internet through workloads to datastores",
+	"public-datastore":          "Datastores with public exposure indicators",
+	"admin-identities":          "Identities with broad administrative permissions",
+	"admin-to-public-datastore": "Public datastores linked to admin-capable identities",
+}
+
+// queryAliases keeps the Phase 0 S3 names working. They are not listed.
+var queryAliases = map[string]string{
+	"public-s3-buckets":               "public-datastore",
+	"toxic-s3-public-with-admin-role": "admin-to-public-datastore",
 }
 
 type Querier struct {
@@ -27,20 +33,27 @@ func NewQuerier(store *Store) *Querier {
 }
 
 func (q *Querier) Run(ctx context.Context, name string) (PathResult, error) {
-	switch name {
+	switch resolveQuery(name) {
 	case "internet-to-workload":
 		return q.internetToWorkload(ctx)
 	case "internet-to-datastore":
 		return q.internetToDatastore(ctx)
-	case "public-s3-buckets":
-		return q.publicS3Buckets(ctx)
+	case "public-datastore":
+		return q.publicDatastores(ctx, name)
 	case "admin-identities":
 		return q.adminIdentities(ctx)
-	case "toxic-s3-public-with-admin-role":
-		return q.toxicS3PublicWithAdmin(ctx)
+	case "admin-to-public-datastore":
+		return q.adminToPublicDatastore(ctx, name)
 	default:
 		return PathResult{}, fmt.Errorf("unknown query %q", name)
 	}
+}
+
+func resolveQuery(name string) string {
+	if canonical, ok := queryAliases[name]; ok {
+		return canonical
+	}
+	return name
 }
 
 func (q *Querier) internetToWorkload(ctx context.Context) (PathResult, error) {
@@ -124,7 +137,7 @@ func (q *Querier) internetToDatastore(ctx context.Context) (PathResult, error) {
 		"Attack paths from the internet through workloads to datastores")
 }
 
-func (q *Querier) publicS3Buckets(ctx context.Context) (PathResult, error) {
+func (q *Querier) publicDatastores(ctx context.Context, queryName string) (PathResult, error) {
 	rows, err := q.store.pool.Query(ctx, `
 		SELECT ARRAY[n.id]
 		FROM nodes n
@@ -141,8 +154,8 @@ func (q *Querier) publicS3Buckets(ctx context.Context) (PathResult, error) {
 	}
 	defer rows.Close()
 
-	return q.materializeSingleNodePaths(ctx, rows, "public-s3-buckets",
-		"S3 buckets flagged as publicly accessible or missing public access blocks")
+	return q.materializeSingleNodePaths(ctx, rows, queryName,
+		"Datastores flagged as publicly accessible or missing public access blocks")
 }
 
 func (q *Querier) adminIdentities(ctx context.Context) (PathResult, error) {
@@ -150,11 +163,7 @@ func (q *Querier) adminIdentities(ctx context.Context) (PathResult, error) {
 		SELECT ARRAY[n.id]
 		FROM nodes n
 		WHERE n.type = $1
-		  AND (
-			n.properties->>'admin_access' = 'true'
-		 OR n.name LIKE '*Admin%'
-		 OR n.name LIKE '*admin*'
-		  )
+		  AND n.properties->>'admin_access' = 'true'
 		ORDER BY n.name
 		LIMIT 100
 	`, NodeIdentity)
@@ -164,10 +173,10 @@ func (q *Querier) adminIdentities(ctx context.Context) (PathResult, error) {
 	defer rows.Close()
 
 	return q.materializeSingleNodePaths(ctx, rows, "admin-identities",
-		"IAM roles with indicators of broad administrative access")
+		"Identities with broad administrative access")
 }
 
-func (q *Querier) toxicS3PublicWithAdmin(ctx context.Context) (PathResult, error) {
+func (q *Querier) adminToPublicDatastore(ctx context.Context, queryName string) (PathResult, error) {
 	rows, err := q.store.pool.Query(ctx, `
 		SELECT ARRAY[s.id, i.id]
 		FROM nodes s
@@ -192,9 +201,9 @@ func (q *Querier) toxicS3PublicWithAdmin(ctx context.Context) (PathResult, error
 	}
 
 	return PathResult{
-		Query:   "toxic-s3-public-with-admin-role",
+		Query:   queryName,
 		Paths:   paths,
-		Summary: "Public S3 buckets reachable by identities with admin-level permissions",
+		Summary: "Public datastores reachable by identities with admin-level permissions",
 	}, nil
 }
 
