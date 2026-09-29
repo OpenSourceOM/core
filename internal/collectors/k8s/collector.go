@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/OpenSourceOM/core/internal/graph"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -83,7 +84,17 @@ func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
 		if err != nil {
 			return graph.Batch{}, err
 		}
-		c.linkServicesToPods(&batch, pods, services)
+		ingresses, err := c.listIngresses(ctx, client, ns)
+		if err != nil {
+			return graph.Batch{}, err
+		}
+		policies, err := c.listNetworkPolicies(ctx, client, ns)
+		if err != nil {
+			return graph.Batch{}, err
+		}
+		if err := c.linkExposure(&batch, pods, services, ingresses, policies); err != nil {
+			return graph.Batch{}, fmt.Errorf("link exposure in %s: %w", ns, err)
+		}
 	}
 
 	return batch, nil
@@ -197,6 +208,30 @@ func (c *Collector) collectServices(ctx context.Context, client *kubernetes.Clie
 		})
 	}
 	return services, nil
+}
+
+func (c *Collector) listIngresses(ctx context.Context, client *kubernetes.Clientset, namespace string) ([]*networkingv1.Ingress, error) {
+	out, err := client.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list ingresses in %s: %w", namespace, err)
+	}
+	items := make([]*networkingv1.Ingress, 0, len(out.Items))
+	for i := range out.Items {
+		items = append(items, &out.Items[i])
+	}
+	return items, nil
+}
+
+func (c *Collector) listNetworkPolicies(ctx context.Context, client *kubernetes.Clientset, namespace string) ([]*networkingv1.NetworkPolicy, error) {
+	out, err := client.NetworkingV1().NetworkPolicies(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list network policies in %s: %w", namespace, err)
+	}
+	items := make([]*networkingv1.NetworkPolicy, 0, len(out.Items))
+	for i := range out.Items {
+		items = append(items, &out.Items[i])
+	}
+	return items, nil
 }
 
 func (c *Collector) loadConfig() (*rest.Config, error) {

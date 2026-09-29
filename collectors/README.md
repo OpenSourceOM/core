@@ -24,6 +24,8 @@ The **AWS** collector emits properties the CIS pack matches on: `open_ingress`, 
 
 The **Azure** collector records logical SQL servers, and the **GCP** collector records Cloud SQL instances. A workload gets `CAN_ACCESS` only when a security group, firewall, or VPC path allows it.
 
+The **Kubernetes** collector records Ingress objects and whether a NetworkPolicy selects each pod. A pod is internet-reachable from a LoadBalancer or an Ingress backend unless that policy governs ingress and does not allow the world. NodePort alone is not exposure.
+
 ## Interface
 
 Each built-in collector:

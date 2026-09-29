@@ -31,7 +31,8 @@ Multi-tenant RBAC (admin/viewer roles, account scoping) was considered for Phase
 ### Kubernetes collector
 
 - `om scan k8s` uses in-cluster or kubeconfig credentials.
-- Maps pods → `Workload`, namespaces/services → `Network`, service accounts → `Identity`.
+- Maps pods → `Workload`, namespaces, services, and ingresses → `Network`, service accounts → `Identity`.
+- A pod is internet-reachable when a LoadBalancer service or an Ingress backend selects it. NodePort alone does not publish the pod. A NetworkPolicy that selects the pod and governs ingress removes that edge unless a rule allows every source or `0.0.0.0/0` / `::/0`. The selecting policy names are stored on the workload as `network_policy`.
 
 ### Exports
 
@@ -46,7 +47,7 @@ Multi-tenant RBAC (admin/viewer roles, account scoping) was considered for Phase
 ## Consequences
 
 - CSPM rules are code-defined in Phase 2; YAML rule packs (`packs/*.yaml`) land in Phase 3 and are embedded at compile time.
-- K8s public exposure uses heuristics (LoadBalancer services, ingress labels) — not a full network policy model yet.
+- K8s public exposure follows LoadBalancer services and Ingress backends, gated by NetworkPolicy. Gateway API, internal-only ingress classes, and ipBlock exceptions are not modeled.
 - Role-based access, multi-tenant scoping, and SAML/SSO are out of scope for the OSS core — see [OSS vs. commercial](./ROADMAP.md#open-source-vs-commercial).
 
 ## References
