@@ -98,7 +98,7 @@ h2 { margin: 0 0 0.75rem; font-size: 1rem; }
   margin-bottom: 0.75rem;
 }
 .graph-toolbar h2 { margin: 0; flex: 1; }
-#query-select, #refresh-btn, #rules-btn {
+#query-select, #api-key, #save-api-key-btn, #refresh-btn, #rules-btn {
   background: #1a2440;
   color: var(--text);
   border: 1px solid var(--border);
@@ -124,6 +124,9 @@ h2 { margin: 0 0 0.75rem; font-size: 1rem; }
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #0a1224;
+}
+#api-key {
+  width: 140px;
 }
 
 @media (max-width: 900px) {

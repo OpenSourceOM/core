@@ -41,6 +41,22 @@ async function runRules() {
   }
 }
 
+function loadAPIKey() {
+  const input = document.getElementById("api-key");
+  input.value = localStorage.getItem("om_api_key") || "";
+}
+
+function saveAPIKey() {
+  const input = document.getElementById("api-key");
+  const key = input.value.trim();
+
+  if (key) {
+    localStorage.setItem("om_api_key", key);
+  } else {
+    localStorage.removeItem("om_api_key");
+  }
+}
+
 function apiHeaders() {
   const key = localStorage.getItem("om_api_key");
   if (!key) return {};
@@ -282,8 +298,10 @@ async function refresh() {
 document.getElementById("refresh-btn").addEventListener("click", refresh);
 document.getElementById("query-select").addEventListener("change", refresh);
 document.getElementById("rules-btn").addEventListener("click", runRules);
+document.getElementById("save-api-key-btn").addEventListener("click", saveAPIKey);
 
 (async function init() {
+  loadAPIKey();
   try {
     await loadQueries();
     await refresh();

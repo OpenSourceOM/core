@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>OpenSourceOM Console</title>
   <link rel="stylesheet" href="/ui/styles.css" />
-  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <script src="/ui/vis-network.min.js"></script>
 </head>
 <body>
   <header>
@@ -26,6 +26,13 @@
         <select id="query-select">
           <option value="">Full graph snapshot</option>
         </select>
+        <input
+          id="api-key"
+          type="password"
+          placeholder="API key"
+          autocomplete="off"
+        />
+        <button id="save-api-key-btn" type="button">Save API key</button>
         <button id="rules-btn" type="button">Run CSPM rules</button>
         <button id="refresh-btn" type="button">Refresh</button>
       </div>
