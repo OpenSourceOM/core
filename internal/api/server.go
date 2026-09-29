@@ -20,14 +20,20 @@ import (
 
 type Server struct {
 	store     *graph.Store
+	health    healthChecker
 	querier   *graph.Querier
 	rules     *rules.Engine
 	apiSecret string
 }
 
+type healthChecker interface {
+	Ping(context.Context) error
+}
+
 func NewServer(store *graph.Store, apiSecret string) *Server {
 	return &Server{
 		store:     store,
+		health:    store,
 		querier:   graph.NewQuerier(store),
 		rules:     rules.NewEngine(store),
 		apiSecret: apiSecret,
@@ -65,6 +71,14 @@ func (s *Server) ListenAndServe(addr string) error {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if err := s.health.Ping(r.Context()); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status":  "unavailable",
+			"service": "opensourceom-api",
+		})
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":  "ok",
 		"service": "opensourceom-api",
