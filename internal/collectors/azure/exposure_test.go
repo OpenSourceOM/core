@@ -70,20 +70,194 @@ func TestVMPublicIPFromNIC(t *testing.T) {
 	}
 }
 
-func TestVMReachableOnlyWithPublicIP(t *testing.T) {
+func TestAzurePublicIPWithoutAllowIsNotReachable(t *testing.T) {
 	c := NewCollector("sub", "eastus")
+	nsgID := "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Network/networkSecurityGroups/deny-all"
+	nsg := &armnetwork.SecurityGroup{
+		ID:       ptr(nsgID),
+		Name:     ptr("deny-all"),
+		Location: ptr("eastus"),
+		Properties: &armnetwork.SecurityGroupPropertiesFormat{
+			SecurityRules: []*armnetwork.SecurityRule{
+				nsgRule("deny-internet", 100, armnetwork.SecurityRuleAccessDeny, "*", armnetwork.SecurityRuleProtocolAsterisk, "*"),
+			},
+		},
+	}
+	workloadID := c.nodeID("workload", "web")
 	var batch graph.Batch
-	c.addInternetEdge(&batch, c.nodeID("workload", "private"), "")
-	c.addInternetEdge(&batch, c.nodeID("workload", "web"), "20.1.2.3")
-	if len(batch.Edges) != 1 {
-		t.Fatalf("edges = %d, want 1", len(batch.Edges))
+	err := c.attachAzureExposure(&batch, workloadID, []azureNICFacts{{
+		PublicIP: "20.1.2.3",
+		NicNSGID: nsgID,
+	}}, indexSecurityGroups([]*armnetwork.SecurityGroup{nsg}), nil, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if batch.Edges[0].Type != graph.EdgeReachable || batch.Edges[0].SourceID != graph.InternetNodeID {
-		t.Fatalf("edge = %+v", batch.Edges[0])
+	if hasEdge(batch, graph.InternetNodeID, workloadID, graph.EdgeReachable) {
+		t.Fatal("public IP behind a deny-all NSG should not be reachable")
 	}
-	if batch.Edges[0].TargetID != c.nodeID("workload", "web") {
-		t.Fatalf("reachable target = %s", batch.Edges[0].TargetID)
+	nsgNode := c.nodeID("network", "rg1/deny-all")
+	if findNode(batch, nsgNode).ID == "" {
+		t.Fatal("NSG should be a network node")
 	}
+	if !hasEdge(batch, workloadID, nsgNode, graph.EdgeAffects) {
+		t.Fatal("NSG should be attached to the workload")
+	}
+}
+
+func TestAzurePrivateIPBehindLoadBalancerIsReachable(t *testing.T) {
+	c := NewCollector("sub", "eastus")
+	nsgID := "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Network/networkSecurityGroups/web"
+	ipConfigID := "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Network/networkInterfaces/nic1/ipConfigurations/ip1"
+	pipID := "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Network/publicIPAddresses/lb-ip"
+	nsg := &armnetwork.SecurityGroup{
+		ID:       ptr(nsgID),
+		Name:     ptr("web"),
+		Location: ptr("eastus"),
+		Properties: &armnetwork.SecurityGroupPropertiesFormat{
+			SecurityRules: []*armnetwork.SecurityRule{
+				nsgRule("allow-web", 100, armnetwork.SecurityRuleAccessAllow, "Internet", armnetwork.SecurityRuleProtocolTCP, "80"),
+			},
+			DefaultSecurityRules: []*armnetwork.SecurityRule{
+				nsgRule("DenyAllInBound", 65500, armnetwork.SecurityRuleAccessDeny, "*", armnetwork.SecurityRuleProtocolAsterisk, "*"),
+			},
+		},
+	}
+	lb := &armnetwork.LoadBalancer{
+		Name: ptr("web-lb"),
+		Properties: &armnetwork.LoadBalancerPropertiesFormat{
+			FrontendIPConfigurations: []*armnetwork.FrontendIPConfiguration{{
+				Properties: &armnetwork.FrontendIPConfigurationPropertiesFormat{
+					PublicIPAddress: &armnetwork.PublicIPAddress{ID: ptr(pipID)},
+				},
+			}},
+			BackendAddressPools: []*armnetwork.BackendAddressPool{{
+				Properties: &armnetwork.BackendAddressPoolPropertiesFormat{
+					BackendIPConfigurations: []*armnetwork.InterfaceIPConfiguration{{ID: ptr(ipConfigID)}},
+				},
+			}},
+		},
+	}
+	targets := azurePublicLBTargets([]*armnetwork.LoadBalancer{lb})
+	workloadID := c.nodeID("workload", "web")
+	var batch graph.Batch
+	err := c.attachAzureExposure(&batch, workloadID, []azureNICFacts{{
+		NicNSGID:   nsgID,
+		IPConfigID: ipConfigID,
+	}}, indexSecurityGroups([]*armnetwork.SecurityGroup{nsg}), targets, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edge, ok := edgeByType(batch, graph.InternetNodeID, workloadID, graph.EdgeReachable)
+	if !ok {
+		t.Fatal("private IP behind a public load balancer and an allow rule should be reachable")
+	}
+	if edge.Properties["via_nsg"] != "web" || edge.Properties["via_load_balancer"] != "web-lb" {
+		t.Fatalf("reachable properties = %#v", edge.Properties)
+	}
+	if !hasEdge(batch, workloadID, c.nodeID("network", "rg1/web"), graph.EdgeAffects) {
+		t.Fatal("NSG should be attached to the workload")
+	}
+
+	var closed graph.Batch
+	err = c.attachAzureExposure(&closed, workloadID, []azureNICFacts{{
+		NicNSGID:   nsgID,
+		IPConfigID: ipConfigID,
+	}}, indexSecurityGroups([]*armnetwork.SecurityGroup{nsg}), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasEdge(closed, graph.InternetNodeID, workloadID, graph.EdgeReachable) {
+		t.Fatal("an allow rule alone should not expose a private IP")
+	}
+}
+
+func TestAzurePublicIPWithoutNSGStaysReachable(t *testing.T) {
+	c := NewCollector("sub", "eastus")
+	workloadID := c.nodeID("workload", "web")
+	var batch graph.Batch
+	err := c.attachAzureExposure(&batch, workloadID, []azureNICFacts{{
+		PublicIP: "20.1.2.3",
+	}}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edge, ok := edgeByType(batch, graph.InternetNodeID, workloadID, graph.EdgeReachable)
+	if !ok {
+		t.Fatal("public IP with no NSG should stay reachable")
+	}
+	if edge.Properties["via_public_ip"] != "20.1.2.3" {
+		t.Fatalf("reachable properties = %#v", edge.Properties)
+	}
+
+	var private graph.Batch
+	err = c.attachAzureExposure(&private, c.nodeID("workload", "db"), []azureNICFacts{{}}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasEdge(private, graph.InternetNodeID, c.nodeID("workload", "db"), graph.EdgeReachable) {
+		t.Fatal("private IP with no NSG should not be reachable")
+	}
+}
+
+func TestAzureSubnetDenyBlocksPublicIP(t *testing.T) {
+	c := NewCollector("sub", "eastus")
+	nicID := "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Network/networkSecurityGroups/nic-allow"
+	subnetID := "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Network/networkSecurityGroups/subnet-deny"
+	allow := &armnetwork.SecurityGroup{
+		ID:   ptr(nicID),
+		Name: ptr("nic-allow"),
+		Properties: &armnetwork.SecurityGroupPropertiesFormat{
+			SecurityRules: []*armnetwork.SecurityRule{
+				nsgRule("allow", 100, armnetwork.SecurityRuleAccessAllow, "Internet", armnetwork.SecurityRuleProtocolTCP, "443"),
+			},
+		},
+	}
+	deny := &armnetwork.SecurityGroup{
+		ID:   ptr(subnetID),
+		Name: ptr("subnet-deny"),
+		Properties: &armnetwork.SecurityGroupPropertiesFormat{
+			SecurityRules: []*armnetwork.SecurityRule{
+				nsgRule("deny", 100, armnetwork.SecurityRuleAccessDeny, "*", armnetwork.SecurityRuleProtocolAsterisk, "*"),
+			},
+		},
+	}
+	workloadID := c.nodeID("workload", "web")
+	var batch graph.Batch
+	err := c.attachAzureExposure(&batch, workloadID, []azureNICFacts{{
+		PublicIP:    "20.1.2.3",
+		NicNSGID:    nicID,
+		SubnetNSGID: subnetID,
+	}}, indexSecurityGroups([]*armnetwork.SecurityGroup{allow, deny}), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasEdge(batch, graph.InternetNodeID, workloadID, graph.EdgeReachable) {
+		t.Fatal("subnet deny should block a NIC allow")
+	}
+}
+
+func nsgRule(name string, priority int32, access armnetwork.SecurityRuleAccess, source string, protocol armnetwork.SecurityRuleProtocol, ports string) *armnetwork.SecurityRule {
+	return &armnetwork.SecurityRule{
+		Name: ptr(name),
+		Properties: &armnetwork.SecurityRulePropertiesFormat{
+			Access:                   ptr(access),
+			Direction:                ptr(armnetwork.SecurityRuleDirectionInbound),
+			Priority:                 ptr(priority),
+			Protocol:                 ptr(protocol),
+			SourceAddressPrefix:      ptr(source),
+			DestinationAddressPrefix: ptr("*"),
+			DestinationPortRange:     ptr(ports),
+		},
+	}
+}
+
+func edgeByType(batch graph.Batch, source, target, edgeType string) (graph.Edge, bool) {
+	for _, edge := range batch.Edges {
+		if edge.SourceID == source && edge.TargetID == target && edge.Type == edgeType {
+			return edge, true
+		}
+	}
+	return graph.Edge{}, false
 }
 
 func TestAzureBlobPublic(t *testing.T) {
