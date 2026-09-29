@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/OpenSourceOM/core/internal/graph"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -338,6 +339,122 @@ func TestAdminAccessFollowsPolicies(t *testing.T) {
 	}
 }
 
+func TestIAMUserControlsOmitOnLookupError(t *testing.T) {
+	c := &Collector{Region: "us-east-1", AccountID: "111122223333"}
+	client := &fakeIAM{
+		roles: []iamtypes.Role{},
+		users: []iamtypes.User{{
+			UserName: aws.String("alice"),
+			Arn:      aws.String("arn:aws:iam::111122223333:user/alice"),
+		}},
+	}
+	var batch graph.Batch
+	if err := c.collectIAM(context.Background(), client, &batch); err != nil {
+		t.Fatal(err)
+	}
+	node, ok := nodeByID(batch, c.globalNodeID("identity", "user/alice"))
+	if !ok {
+		t.Fatal("missing user alice")
+	}
+	if _, exists := node.Properties["mfa"]; exists {
+		t.Fatalf("mfa = %v, want property omitted", node.Properties["mfa"])
+	}
+	if _, exists := node.Properties["unused_access_keys"]; exists {
+		t.Fatalf("unused_access_keys = %v, want property omitted", node.Properties["unused_access_keys"])
+	}
+}
+
+func TestIAMUserWithoutMFADevice(t *testing.T) {
+	c := &Collector{Region: "us-east-1", AccountID: "111122223333"}
+	client := &fakeIAM{
+		roles: []iamtypes.Role{},
+		users: []iamtypes.User{
+			{UserName: aws.String("alice"), Arn: aws.String("arn:aws:iam::111122223333:user/alice")},
+			{UserName: aws.String("bob"), Arn: aws.String("arn:aws:iam::111122223333:user/bob")},
+		},
+		reportMFA: true,
+		mfaDevices: map[string][]iamtypes.MFADevice{
+			"bob": {{SerialNumber: aws.String("arn:aws:iam::111122223333:mfa/bob")}},
+		},
+		reportKeys: true,
+	}
+	var batch graph.Batch
+	if err := c.collectIAM(context.Background(), client, &batch); err != nil {
+		t.Fatal(err)
+	}
+	alice, ok := nodeByID(batch, c.globalNodeID("identity", "user/alice"))
+	if !ok {
+		t.Fatal("missing user alice")
+	}
+	if mfa, _ := alice.Properties["mfa"].(bool); mfa {
+		t.Fatal("alice mfa = true, want false")
+	}
+	if _, exists := alice.Properties["mfa"]; !exists {
+		t.Fatal("alice mfa omitted, want false")
+	}
+	bob, ok := nodeByID(batch, c.globalNodeID("identity", "user/bob"))
+	if !ok {
+		t.Fatal("missing user bob")
+	}
+	if mfa, _ := bob.Properties["mfa"].(bool); !mfa {
+		t.Fatal("bob mfa = false, want true")
+	}
+}
+
+func TestIAMUserUnusedAccessKey(t *testing.T) {
+	c := &Collector{Region: "us-east-1", AccountID: "111122223333"}
+	recent := time.Now().Add(-24 * time.Hour)
+	client := &fakeIAM{
+		roles: []iamtypes.Role{},
+		users: []iamtypes.User{
+			{UserName: aws.String("stale"), Arn: aws.String("arn:aws:iam::111122223333:user/stale")},
+			{UserName: aws.String("active"), Arn: aws.String("arn:aws:iam::111122223333:user/active")},
+			{UserName: aws.String("unknown"), Arn: aws.String("arn:aws:iam::111122223333:user/unknown")},
+		},
+		reportMFA:  true,
+		reportKeys: true,
+		accessKeys: map[string][]iamtypes.AccessKeyMetadata{
+			"stale": {{
+				AccessKeyId: aws.String("AKIASTALE"),
+				Status:      iamtypes.StatusTypeActive,
+			}},
+			"active": {{
+				AccessKeyId: aws.String("AKIAACTIVE"),
+				Status:      iamtypes.StatusTypeActive,
+			}},
+			"unknown": {{
+				AccessKeyId: aws.String("AKIAUNKNOWN"),
+				Status:      iamtypes.StatusTypeActive,
+			}},
+		},
+		lastUsed: map[string]time.Time{"AKIAACTIVE": recent},
+		lastUsedErrFor: map[string]error{
+			"AKIAUNKNOWN": errors.New("throttle"),
+		},
+	}
+	var batch graph.Batch
+	if err := c.collectIAM(context.Background(), client, &batch); err != nil {
+		t.Fatal(err)
+	}
+	assertUnused := func(name string, wantExists bool, want bool) {
+		t.Helper()
+		node, ok := nodeByID(batch, c.globalNodeID("identity", "user/"+name))
+		if !ok {
+			t.Fatalf("missing user %s", name)
+		}
+		got, exists := node.Properties["unused_access_keys"]
+		if exists != wantExists {
+			t.Fatalf("%s unused_access_keys exists = %v, want %v", name, exists, wantExists)
+		}
+		if wantExists && got != want {
+			t.Fatalf("%s unused_access_keys = %v, want %v", name, got, want)
+		}
+	}
+	assertUnused("stale", true, true)
+	assertUnused("active", true, false)
+	assertUnused("unknown", false, false)
+}
+
 func TestAdminAccessLookupError(t *testing.T) {
 	c := &Collector{Region: "us-east-1", AccountID: "111122223333"}
 	client := &fakeIAM{
@@ -364,6 +481,12 @@ type fakeIAM struct {
 	managedDocs     map[string]string
 	fetchedPolicies []string
 	policyErr       error
+	reportMFA       bool
+	mfaDevices      map[string][]iamtypes.MFADevice
+	reportKeys      bool
+	accessKeys      map[string][]iamtypes.AccessKeyMetadata
+	lastUsed        map[string]time.Time
+	lastUsedErrFor  map[string]error
 }
 
 func (f *fakeIAM) ListRoles(context.Context, *iam.ListRolesInput, ...func(*iam.Options)) (*iam.ListRolesOutput, error) {
@@ -462,16 +585,34 @@ func (f *fakeIAM) GetPolicyVersion(_ context.Context, params *iam.GetPolicyVersi
 	}}, nil
 }
 
-func (f *fakeIAM) ListMFADevices(context.Context, *iam.ListMFADevicesInput, ...func(*iam.Options)) (*iam.ListMFADevicesOutput, error) {
-	return nil, errors.New("lookup failed")
+func (f *fakeIAM) ListMFADevices(_ context.Context, params *iam.ListMFADevicesInput, _ ...func(*iam.Options)) (*iam.ListMFADevicesOutput, error) {
+	if !f.reportMFA {
+		return nil, errors.New("lookup failed")
+	}
+	return &iam.ListMFADevicesOutput{MFADevices: f.mfaDevices[aws.ToString(params.UserName)]}, nil
 }
 
-func (f *fakeIAM) ListAccessKeys(context.Context, *iam.ListAccessKeysInput, ...func(*iam.Options)) (*iam.ListAccessKeysOutput, error) {
-	return nil, errors.New("lookup failed")
+func (f *fakeIAM) ListAccessKeys(_ context.Context, params *iam.ListAccessKeysInput, _ ...func(*iam.Options)) (*iam.ListAccessKeysOutput, error) {
+	if !f.reportKeys {
+		return nil, errors.New("lookup failed")
+	}
+	return &iam.ListAccessKeysOutput{AccessKeyMetadata: f.accessKeys[aws.ToString(params.UserName)]}, nil
 }
 
-func (f *fakeIAM) GetAccessKeyLastUsed(context.Context, *iam.GetAccessKeyLastUsedInput, ...func(*iam.Options)) (*iam.GetAccessKeyLastUsedOutput, error) {
-	return nil, errors.New("lookup failed")
+func (f *fakeIAM) GetAccessKeyLastUsed(_ context.Context, params *iam.GetAccessKeyLastUsedInput, _ ...func(*iam.Options)) (*iam.GetAccessKeyLastUsedOutput, error) {
+	if !f.reportKeys {
+		return nil, errors.New("lookup failed")
+	}
+	id := aws.ToString(params.AccessKeyId)
+	if err := f.lastUsedErrFor[id]; err != nil {
+		return nil, err
+	}
+	if used, ok := f.lastUsed[id]; ok {
+		return &iam.GetAccessKeyLastUsedOutput{
+			AccessKeyLastUsed: &iamtypes.AccessKeyLastUsed{LastUsedDate: &used},
+		}, nil
+	}
+	return &iam.GetAccessKeyLastUsedOutput{}, nil
 }
 
 func testInstance(id, publicIP, groupID string) ec2types.Instance {

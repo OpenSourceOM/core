@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
@@ -293,40 +294,56 @@ func (c *Collector) collectIAMUsers(ctx context.Context, client iamAPI, batch *g
 				return err
 			}
 
-			mfa := false
-			if mfaOut, err := client.ListMFADevices(ctx, &iam.ListMFADevicesInput{UserName: user.UserName}); err == nil {
-				mfa = len(mfaOut.MFADevices) > 0
+			// A failed lookup omits the property. Writing false would make
+			// cis-iam-no-mfa match a user the API did not check, and writing
+			// unused_access_keys false would hide a key that was not listed.
+			props := map[string]any{
+				"arn":            aws.ToString(user.Arn),
+				"principal_type": "user",
+				"admin_access":   adminAccess,
 			}
-
-			unusedKeys := false
-			if keysOut, err := client.ListAccessKeys(ctx, &iam.ListAccessKeysInput{UserName: user.UserName}); err == nil {
-				lastUsed := map[string]*time.Time{}
-				for _, key := range keysOut.AccessKeyMetadata {
-					id := aws.ToString(key.AccessKeyId)
-					if used, err := client.GetAccessKeyLastUsed(ctx, &iam.GetAccessKeyLastUsedInput{AccessKeyId: key.AccessKeyId}); err == nil && used.AccessKeyLastUsed != nil {
-						lastUsed[id] = used.AccessKeyLastUsed.LastUsedDate
-					}
-				}
-				unusedKeys = unusedAccessKeys(keysOut.AccessKeyMetadata, lastUsed, 90*24*time.Hour)
+			if mfaOut, err := client.ListMFADevices(ctx, &iam.ListMFADevicesInput{UserName: user.UserName}); err == nil && mfaOut != nil {
+				props["mfa"] = len(mfaOut.MFADevices) > 0
+			}
+			if unused, ok := unusedAccessKeysChecked(ctx, client, user.UserName); ok {
+				props["unused_access_keys"] = unused
 			}
 
 			batch.Nodes = append(batch.Nodes, graph.Node{
-				ID:        userID,
-				Type:      graph.NodeIdentity,
-				Name:      userName,
-				Provider:  "aws",
-				AccountID: c.AccountID,
-				Properties: graph.MustProperties(map[string]any{
-					"arn":                aws.ToString(user.Arn),
-					"principal_type":     "user",
-					"admin_access":       adminAccess,
-					"mfa":                mfa,
-					"unused_access_keys": unusedKeys,
-				}),
+				ID:         userID,
+				Type:       graph.NodeIdentity,
+				Name:       userName,
+				Provider:   "aws",
+				AccountID:  c.AccountID,
+				Properties: graph.MustProperties(props),
 			})
 		}
 	}
 	return nil
+}
+
+// unusedAccessKeysChecked reports whether any active key is unused.
+// ok is false when listing keys or reading last-used fails, so the caller
+// leaves the property unset instead of storing a control result.
+func unusedAccessKeysChecked(ctx context.Context, client iamAPI, userName *string) (unused bool, ok bool) {
+	keysOut, err := client.ListAccessKeys(ctx, &iam.ListAccessKeysInput{UserName: userName})
+	if err != nil || keysOut == nil {
+		return false, false
+	}
+	lastUsed := map[string]*time.Time{}
+	for _, key := range keysOut.AccessKeyMetadata {
+		if key.Status != iamtypes.StatusTypeActive {
+			continue
+		}
+		used, err := client.GetAccessKeyLastUsed(ctx, &iam.GetAccessKeyLastUsedInput{AccessKeyId: key.AccessKeyId})
+		if err != nil || used == nil {
+			return false, false
+		}
+		if used.AccessKeyLastUsed != nil {
+			lastUsed[aws.ToString(key.AccessKeyId)] = used.AccessKeyLastUsed.LastUsedDate
+		}
+	}
+	return unusedAccessKeys(keysOut.AccessKeyMetadata, lastUsed, 90*24*time.Hour), true
 }
 
 func (c *Collector) collectS3(ctx context.Context, client s3API, batch *graph.Batch) error {

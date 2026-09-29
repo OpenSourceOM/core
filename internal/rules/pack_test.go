@@ -48,6 +48,13 @@ func TestMatchProperties(t *testing.T) {
 	if !matchProperties(have, map[string]any{"service": "s3", "encryption": false}) {
 		t.Fatal("expected combined property match")
 	}
+	unchecked := map[string]any{"principal_type": "user"}
+	if matchProperties(unchecked, map[string]any{"mfa": false}) {
+		t.Fatal("missing mfa must not match")
+	}
+	if matchProperties(unchecked, map[string]any{"unused_access_keys": true}) {
+		t.Fatal("missing unused_access_keys must not match")
+	}
 }
 
 func TestMatchGraph(t *testing.T) {
