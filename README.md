@@ -21,7 +21,7 @@ OpenSourceOM Core is the platform behind [opensourceom.org](https://opensourceom
 
 Traditional scanners flood you with CVEs and misconfigurations. OpenSourceOM connects the dots — showing which findings sit on paths from the internet to your sensitive data and privileged identities.
 
-> **Status:** Early development (Phase 3). CSPM rules, identity blast radius, Kubernetes ingest, exports, a collector plugin SDK, and a Helm chart are available. CVE findings follow package and image inventory. Datastores can carry a sensitivity mark from a tag or label. A rules run writes an attack-path finding when a workload finding sits on a path to a datastore. `om scan aws` attaches recent CloudTrail management events, and `om scan azure` attaches recent Activity Log events, to the identity and resource on that path. Further rule packs are open for contributors. See the [roadmap](./docs/ROADMAP.md).
+> **Status:** Early development (Phase 3). CSPM rules, identity blast radius, Kubernetes ingest, exports, a collector plugin SDK, and a Helm chart are available. CVE findings follow package and image inventory. Datastores can carry a sensitivity mark from a tag or label. A rules run writes an attack-path finding when a workload finding sits on a path to a datastore. `om scan aws` attaches recent CloudTrail management events, `om scan azure` attaches recent Activity Log events, and `om scan gcp` attaches recent Admin Activity audit logs, to the identity and resource on that path. That slice is [#74](https://github.com/OpenSourceOM/core/issues/74); Phase 3 closes when the issue is closed. Further rule packs stay open for contributors and do not gate the phase. See the [roadmap](./docs/ROADMAP.md).
 
 ## Why this exists
 
@@ -160,7 +160,7 @@ Full documentation: [opensourceom.org](https://opensourceom.org) (docs at [opens
 | **0** | Graph schema v0, AWS collector, ingest API, `om` CLI |
 | **1** | Attack path queries, CVE enrichment, web UI, Azure/GCP collectors |
 | **2** | CSPM rules, blast radius, K8s connector, exports |
-| **3** *(now)* | Graph accuracy, crown-jewel datastores, attack-path findings, CloudTrail and Activity Log context, rule packs |
+| **3** *(now)* | Graph accuracy, crown-jewel datastores, attack-path findings, CloudTrail and Activity Log context. GCP Admin Activity logs ([#74](https://github.com/OpenSourceOM/core/issues/74)) close the phase. |
 
 Details: [docs/ROADMAP.md](./docs/ROADMAP.md)
 
