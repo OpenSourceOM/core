@@ -64,7 +64,7 @@ type Scope struct {
 
 // ReplaceInventory upserts batch, then deletes inventory in scopes that the
 // batch no longer contains. Finding nodes stay unless their affected resource
-// was removed. Rule evaluation removes CSPM findings that no longer match.
+// was removed. Rule evaluation removes findings that no longer match.
 func (s *Store) ReplaceInventory(ctx context.Context, scopes []Scope, batch Batch) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -262,8 +262,9 @@ func deleteAbsentInventory(ctx context.Context, tx pgx.Tx, scopes []Scope, batch
 	return nil
 }
 
-// DeleteStaleRuleFindings removes CSPM findings for ruleID whose ids are not in
-// keepIDs. Findings from other rules and from CVE enrichment are left alone.
+// DeleteStaleRuleFindings removes CSPM and attack-path findings for ruleID
+// whose ids are not in keepIDs. Findings from other rules and from CVE
+// enrichment are left alone.
 func (s *Store) DeleteStaleRuleFindings(ctx context.Context, ruleID string, keepIDs []string) error {
 	if ruleID == "" {
 		return nil
@@ -274,10 +275,10 @@ func (s *Store) DeleteStaleRuleFindings(ctx context.Context, ruleID string, keep
 	_, err := s.pool.Exec(ctx, `
 		DELETE FROM nodes
 		WHERE type = $1
-		  AND properties->>'finding_type' = 'cspm'
+		  AND properties->>'finding_type' IN ('cspm', $4)
 		  AND properties->>'rule_id' = $2
 		  AND NOT (id = ANY($3::text[]))
-	`, NodeFinding, ruleID, keepIDs)
+	`, NodeFinding, ruleID, keepIDs, FindingTypeAttackPath)
 	return err
 }
 

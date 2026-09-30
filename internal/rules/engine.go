@@ -11,12 +11,15 @@ import (
 )
 
 type Match struct {
-	RuleID      string       `json:"rule_id"`
-	Resource    graph.Node   `json:"resource"`
-	Title       string       `json:"title"`
-	Description string       `json:"description"`
-	BaseScore   int          `json:"base_score"`
-	Context     GraphContext `json:"graph_context"`
+	RuleID          string       `json:"rule_id"`
+	Resource        graph.Node   `json:"resource"`
+	Title           string       `json:"title"`
+	Description     string       `json:"description"`
+	BaseScore       int          `json:"base_score"`
+	Context         GraphContext `json:"graph_context"`
+	Path            []string     `json:"path,omitempty"`
+	SourceFindingID string       `json:"source_finding_id,omitempty"`
+	DatastoreID     string       `json:"datastore_id,omitempty"`
 }
 
 type Rule struct {
@@ -61,6 +64,7 @@ func init() {
 		panic(err)
 	}
 	Catalog = append(Catalog, extra...)
+	Catalog = append(Catalog, attackPathRule)
 }
 
 func CatalogMap() map[string]string {
@@ -123,6 +127,9 @@ func (e *Engine) Run(ctx context.Context, ruleID string) (RunResult, error) {
 }
 
 func (e *Engine) persistMatches(ctx context.Context, rule Rule, matches []Match) (int, error) {
+	if rule.ID == attackPathRuleID {
+		return e.persistAttackPathMatches(ctx, rule, matches)
+	}
 	keep := make([]string, 0, len(matches))
 	for _, match := range matches {
 		findingID := findingNodeID(rule.ID, match.Resource.ID)

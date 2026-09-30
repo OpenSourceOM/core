@@ -22,6 +22,7 @@ type FindingRecord struct {
 	AffectedID   string     `json:"affected_resource_id,omitempty"`
 	AffectedName string     `json:"affected_resource_name,omitempty"`
 	AffectedType string     `json:"affected_resource_type,omitempty"`
+	Path         []string   `json:"path,omitempty"`
 }
 
 func LoadFindingRecords(ctx context.Context, store *graph.Store) ([]FindingRecord, error) {
@@ -34,6 +35,7 @@ func LoadFindingRecords(ctx context.Context, store *graph.Store) ([]FindingRecor
 			AffectedID:   view.AffectedResourceID,
 			AffectedName: view.AffectedResourceName,
 			AffectedType: view.AffectedResourceType,
+			Path:         view.Path,
 		})
 		return nil
 	})

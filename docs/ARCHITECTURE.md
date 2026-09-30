@@ -36,7 +36,7 @@ SPDX-License-Identifier: Apache-2.0
 | **Graph store** | `internal/graph/`, `migrations/` | PostgreSQL `nodes` + `edges` |
 | **Path queries** | `internal/graph/query.go` | Named queries including `internet-to-datastore` and `internet-to-sensitive-datastore` |
 | **Blast radius** | `internal/graph/blastradius.go` | Reachability from identities over `CAN_ACCESS` / `ASSUMES` |
-| **CSPM rules** | `internal/rules/` | Built-in policies plus embedded YAML packs |
+| **CSPM rules** | `internal/rules/` | Built-in policies, embedded YAML packs, and attack-path findings |
 | **CVE enrichment** | `internal/enrichment/` | Match workload packages and images, then NVD or a catalog for CVSS |
 | **Exports** | `internal/export/` | SIEM JSONL, Slack webhooks, Jira issues |
 | **API** | `internal/api/` | REST + embedded console at `/`; shared API secret on `/v1` except health |
@@ -77,7 +77,7 @@ Making the skeleton true, in order:
 - Self-hosted operability (console). Read routes honor the API secret, and the Helm chart schedules collectors when credentials are set.
 - CVE enrichment tied to workload inventory. `om enrich cve` writes a finding only when a workload package or image matches.
 - Crown-jewel mark on datastores. A tag or label named `sensitivity` or `data-class` is stored on the datastore, and `internet-to-sensitive-datastore` keeps only those paths.
-- Attack path as the finding
+- Attack path as the finding. A rules run writes one `attack_path` finding per existing finding on an internet-reachable workload that can reach a datastore, and stores the path as ordered node ids.
 - Cloud audit logs as graph context
 
 Further community rule packs (PCI and additional CIS mappings) stay open for contributors.

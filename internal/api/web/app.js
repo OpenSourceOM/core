@@ -103,11 +103,15 @@ function renderFindings(findings, partial) {
     const props = f.properties || {};
     const severity = props.severity || "info";
     const score = props.normalized_score ?? "";
+    const pathLine = Array.isArray(item.path) && item.path.length
+      ? `<div class="meta">${item.path.map((id) => escapeHTML(id)).join(" → ")}</div>`
+      : "";
     return `
       <article class="finding" data-target="${item.affected_resource_id || ""}">
         <span class="severity ${severityClass(severity)}">${severity}${score === "" ? "" : " " + score}</span>
         <div class="title">${f.name}</div>
         <div class="meta">${props.description || props.title || ""}</div>
+        ${pathLine}
         <div class="meta">${item.affected_resource_name || "Unknown resource"}</div>
       </article>
     `;
