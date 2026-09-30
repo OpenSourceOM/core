@@ -142,11 +142,11 @@ For local CLI-only use without Docker API, run `docker compose up -d postgres` a
 **Kubernetes:**
 
 ```bash
-docker build -t ghcr.io/opensourceom/core:0.2.1 .
+docker build -t ghcr.io/opensourceom/core:0.3.0 .
 helm install om deploy/helm/opensourceom \
   --set api.secret='change-me' \
   --set postgres.password='change-me' \
-  --set image.tag=0.2.1
+  --set image.tag=0.3.0
 ```
 
 Collectors stay off until you enable one and supply credentials, an existing Secret, or `serviceAccountAuth`. The CronJob runs `om scan` against the same Postgres the API reads. `om scan demo` stays a one-shot command. See `scan` in `deploy/helm/opensourceom/values.yaml`.

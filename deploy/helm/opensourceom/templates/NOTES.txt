@@ -1,6 +1,6 @@
 1. Build and load an image (the default repository is a placeholder until you publish one):
 
-   docker build -t ghcr.io/opensourceom/core:0.1.0 .
+   docker build -t ghcr.io/opensourceom/core:0.3.0 .
 
 2. Install with required secrets:
 
@@ -8,7 +8,7 @@
      --set api.secret='change-me' \
      --set postgres.password='change-me' \
      --set image.repository=ghcr.io/opensourceom/core \
-     --set image.tag=0.1.0
+     --set image.tag=0.3.0
 
 3. Open the console via the ClusterIP service or `kubectl port-forward svc/om-opensourceom 8080:8080`.
 
