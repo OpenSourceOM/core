@@ -69,6 +69,9 @@ type PathResult struct {
 	// Truncation names the cap that cut the result: "path cap", "depth cap",
 	// or "path cap and depth cap". Empty when Truncated is false.
 	Truncation string `json:"truncation,omitempty"`
+	// Audits lists management events whose resource node is on a returned path.
+	// Index is the position of that path in Paths.
+	Audits []PathAudit `json:"audits,omitempty"`
 }
 
 type FindingView struct {

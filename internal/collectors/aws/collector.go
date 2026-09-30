@@ -11,6 +11,7 @@ import (
 	"github.com/OpenSourceOM/core/internal/graph"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
@@ -86,6 +87,8 @@ func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
 	if err := c.linkInstanceProfileAccess(ctx, iamClient, &batch, profiles); err != nil {
 		return graph.Batch{}, err
 	}
+	// A failed lookup leaves audit_events unset. Inventory still ingests.
+	c.attachAuditEvents(ctx, cloudtrail.NewFromConfig(cfg), &batch)
 
 	return batch, nil
 }

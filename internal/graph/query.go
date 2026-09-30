@@ -299,6 +299,7 @@ func finishPaths(queryName, summary string, paths [][]Node, cap int, depthCut bo
 		Summary:    summary,
 		Truncated:  truncated,
 		Truncation: note,
+		Audits:     AuditsForPaths(paths),
 	}
 }
 

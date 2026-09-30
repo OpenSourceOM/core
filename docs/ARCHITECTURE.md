@@ -31,7 +31,7 @@ SPDX-License-Identifier: Apache-2.0
 
 | Component | Location | Notes |
 |-----------|----------|-------|
-| **Collectors** | `internal/collectors/` | AWS, Azure, GCP, Kubernetes, demo; RDS, Azure SQL, and Cloud SQL are datastores; AWS emits CIS pack properties |
+| **Collectors** | `internal/collectors/` | AWS, Azure, GCP, Kubernetes, demo; RDS, Azure SQL, and Cloud SQL are datastores; AWS emits CIS pack properties and recent CloudTrail management events |
 | **Plugin SDK** | `sdk/collector`, `internal/plugins/` | External executables; `om scan plugin` |
 | **Graph store** | `internal/graph/`, `migrations/` | PostgreSQL `nodes` + `edges` |
 | **Path queries** | `internal/graph/query.go` | Named queries including `internet-to-datastore` and `internet-to-sensitive-datastore` |
@@ -78,7 +78,7 @@ Making the skeleton true, in order:
 - CVE enrichment tied to workload inventory. `om enrich cve` writes a finding only when a workload package or image matches.
 - Crown-jewel mark on datastores. A tag or label named `sensitivity` or `data-class` is stored on the datastore, and `internet-to-sensitive-datastore` keeps only those paths.
 - Attack path as the finding. A rules run writes one `attack_path` finding per existing finding on an internet-reachable workload that can reach a datastore, and stores the path as ordered node ids.
-- Cloud audit logs as graph context
+- Cloud audit logs as graph context. `om scan aws` stores CloudTrail management events from the last 24 hours on the identity and resource they name, when that resource is on an exposed path. `GET /v1/graph/query` returns those events in `audits` for each path that contains the resource. Azure Activity Log, GCP Cloud Audit Logs, and S3 data events such as `GetObject` are not collected.
 
 Further community rule packs (PCI and additional CIS mappings) stay open for contributors.
 
