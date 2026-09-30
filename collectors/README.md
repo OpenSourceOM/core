@@ -20,7 +20,7 @@ Cloud and platform ingestion plugins. Each collector normalizes provider APIs in
 
 The **demo** collector loads a fixed environment (internet-exposed web tier, production database, public/private buckets, admin vs app identities, public Kubernetes service). Use it to exercise CSPM packs without cloud credentials.
 
-The **AWS** collector emits properties the CIS pack matches on: `open_ingress`, `imdsv2`, `public_ip`, S3 `encryption` / `versioning` / `public_access_block`, and IAM user `mfa` / `unused_access_keys`. It also records RDS and Aurora instances as datastores. S3 bucket tags and the RDS `TagList` copy `sensitivity` or `data-class` onto the datastore. `sensitivity` wins when both are set.
+The **AWS** collector emits properties the CIS pack matches on: `open_ingress`, `imdsv2`, `public_ip`, S3 `encryption` / `versioning` / `public_access_block`, and IAM user `mfa` / `unused_access_keys`. It also records RDS and Aurora instances as datastores. S3 bucket tags and the RDS `TagList` copy `sensitivity` or `data-class` onto the datastore. `sensitivity` wins when both are set. The same scan reads CloudTrail management events from the last 24 hours and stores the ones that name an identity and a resource on an exposed path. A failed lookup omits those events.
 
 The **Azure** collector records logical SQL servers, and the **GCP** collector records Cloud SQL instances. A workload gets `CAN_ACCESS` only when a security group, firewall, or VPC path allows it. Azure copies the crown-jewel mark from storage-account and SQL-server tags. GCP copies it from a bucket label or a Cloud SQL user label. The keys are `sensitivity` and `data-class`. A plugin may set `sensitivity` on a datastore directly.
 

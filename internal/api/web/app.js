@@ -196,7 +196,12 @@ function escapeHTML(value) {
     .replaceAll(">", "&gt;");
 }
 
-function renderPathDetail(paths, edges, truncation) {
+function auditsForPath(audits, index) {
+  const row = (audits || []).find((item) => item.index === index);
+  return row?.events || [];
+}
+
+function renderPathDetail(paths, edges, truncation, audits) {
   const panel = document.getElementById("path-detail");
   if (!paths.length && !truncation) {
     panel.classList.add("hidden");
@@ -218,8 +223,13 @@ function renderPathDetail(paths, edges, truncation) {
         `</li>`,
       );
     }
+    const events = auditsForPath(audits, index).map((event) => {
+      const bits = [event.time, event.name, event.principal, event.resource].filter(Boolean);
+      return `<li>${escapeHTML(bits.join(" "))}</li>`;
+    }).join("");
+    const eventList = events ? `<p class="meta">CloudTrail</p><ul>${events}</ul>` : "";
     const names = path.map((node) => escapeHTML(node.name)).join(" → ");
-    return `<p><strong>Path ${index + 1}.</strong> ${names}</p><ol>${hops.join("")}</ol>`;
+    return `<p><strong>Path ${index + 1}.</strong> ${names}</p><ol>${hops.join("")}</ol>${eventList}`;
   }).join("");
 }
 
@@ -290,7 +300,7 @@ async function refresh() {
   if (query) {
     const result = await fetchJSON(`/v1/graph/query?name=${encodeURIComponent(query)}`);
     const paths = result.paths || [];
-    renderPathDetail(paths, snapshot.edges, result.truncated ? result.truncation : "");
+    renderPathDetail(paths, snapshot.edges, result.truncated ? result.truncation : "", result.audits);
     const built = pathGraph(paths, snapshot.edges);
     renderGraph(built.nodes, built.edges);
     return;

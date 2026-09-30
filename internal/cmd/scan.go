@@ -29,7 +29,7 @@ var scanCmd = &cobra.Command{
 
 var scanAWSCmd = &cobra.Command{
 	Use:   "aws",
-	Short: "Scan the current AWS account (EC2, IAM, S3, security groups)",
+	Short: "Scan the current AWS account (EC2, IAM, S3, security groups) and recent CloudTrail management events",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := loadConfig()
 		collector, err := aws.NewCollector(cmd.Context(), cfg.AWSRegion)

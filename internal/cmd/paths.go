@@ -42,8 +42,22 @@ var pathsRunCmd = &cobra.Command{
 			fmt.Println("No paths found.")
 			return nil
 		}
+		audits := map[int][]graph.AuditEvent{}
+		for _, audit := range result.Audits {
+			audits[audit.Index] = audit.Events
+		}
 		for i, path := range result.Paths {
 			fmt.Printf("%d. %s\n", i+1, graph.FormatPath(path))
+			for _, event := range audits[i] {
+				fmt.Printf("   %s %s", event.Time, event.Name)
+				if event.Principal != "" {
+					fmt.Printf(" %s", event.Principal)
+				}
+				if event.Resource != "" {
+					fmt.Printf(" → %s", event.Resource)
+				}
+				fmt.Println()
+			}
 		}
 		return nil
 	},
