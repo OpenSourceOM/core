@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Architecture
 
-> **Status:** Phase 3 in progress. The collector plugin SDK is available alongside Phase 2 CSPM rules, blast radius, Kubernetes ingest, and exports.
+> **Status:** Phase 3. The ordered path is complete: the collector plugin SDK, Helm, the embedded rule pack, and cloud audit context from CloudTrail, Activity Log, and Admin Activity logs, alongside Phase 2 CSPM rules, blast radius, Kubernetes ingest, and exports. Further rule packs stay open for contributors.
 
 ## Overview
 
@@ -31,7 +31,7 @@ SPDX-License-Identifier: Apache-2.0
 
 | Component | Location | Notes |
 |-----------|----------|-------|
-| **Collectors** | `internal/collectors/` | AWS, Azure, GCP, Kubernetes, demo; RDS, Azure SQL, and Cloud SQL are datastores; AWS emits CIS pack properties and recent CloudTrail management events; Azure emits recent Activity Log events |
+| **Collectors** | `internal/collectors/` | AWS, Azure, GCP, Kubernetes, demo; RDS, Azure SQL, and Cloud SQL are datastores; AWS emits CIS pack properties and recent CloudTrail management events; Azure emits recent Activity Log events; GCP emits recent Admin Activity audit logs |
 | **Plugin SDK** | `sdk/collector`, `internal/plugins/` | External executables; `om scan plugin` |
 | **Graph store** | `internal/graph/`, `migrations/` | PostgreSQL `nodes` + `edges` |
 | **Path queries** | `internal/graph/query.go` | Named queries including `internet-to-datastore` and `internet-to-sensitive-datastore` |
@@ -78,9 +78,9 @@ Making the skeleton true, in order:
 - CVE enrichment tied to workload inventory. `om enrich cve` writes a finding only when a workload package or image matches.
 - Crown-jewel mark on datastores. A tag or label named `sensitivity` or `data-class` is stored on the datastore, and `internet-to-sensitive-datastore` keeps only those paths.
 - Attack path as the finding. A rules run writes one `attack_path` finding per existing finding on an internet-reachable workload that can reach a datastore, and stores the path as ordered node ids.
-- Cloud audit logs as graph context. `om scan aws` stores CloudTrail management events from the last 24 hours, and `om scan azure` stores administrative Activity Log events from the same window, on the identity and resource they name when that resource is on an exposed path. `GET /v1/graph/query` returns those events in `audits` for each path that contains the resource. GCP Cloud Audit Logs, Entra ID sign-in logs, and S3 data events such as `GetObject` are not collected.
+- Cloud audit logs as graph context. `om scan aws` stores CloudTrail management events from the last 24 hours, `om scan azure` stores administrative Activity Log events from the same window, and `om scan gcp` stores Admin Activity audit logs from the same window, on the identity and resource they name when that resource is on an exposed path. `GET /v1/graph/query` returns those events in `audits` for each path that contains the resource. Entra ID sign-in logs, S3 data events such as `GetObject`, and GCP Data Access logs are not collected.
 
-Further community rule packs (PCI and additional CIS mappings) stay open for contributors.
+Further community rule packs (PCI and additional CIS mappings) stay open for contributors ([#10](https://github.com/OpenSourceOM/core/issues/10)). That issue does not close the phase.
 
 Issue links: [ROADMAP.md](./ROADMAP.md)
 

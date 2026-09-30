@@ -70,6 +70,8 @@ func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
 		return graph.Batch{}, err
 	}
 	c.linkGCPAccess(&batch, accounts, uses, bindings)
+	// A failed lookup leaves audit_events unset. Inventory still ingests.
+	c.attachAuditEvents(ctx, c.auditLogs(ctx), &batch)
 	return batch, nil
 }
 

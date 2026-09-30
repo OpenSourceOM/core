@@ -59,7 +59,7 @@ var scanAzureCmd = &cobra.Command{
 
 var scanGCPCmd = &cobra.Command{
 	Use:   "gcp",
-	Short: "Scan the current GCP project (GCE, IAM, GCS)",
+	Short: "Scan the current GCP project (GCE, IAM, GCS) and recent Admin Activity audit logs",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := loadConfig()
 		collector := gcp.NewCollector(cfg.GCPProjectID, cfg.GCPRegion)
