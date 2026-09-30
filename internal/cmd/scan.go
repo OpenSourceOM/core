@@ -47,7 +47,7 @@ var scanAWSCmd = &cobra.Command{
 
 var scanAzureCmd = &cobra.Command{
 	Use:   "azure",
-	Short: "Scan the current Azure subscription (VMs, storage, RBAC)",
+	Short: "Scan the current Azure subscription (VMs, storage, RBAC) and recent Activity Log events",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := loadConfig()
 		collector := azure.NewCollector(cfg.AzureSubscriptionID, cfg.AzureLocation)

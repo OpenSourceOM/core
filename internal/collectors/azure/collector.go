@@ -69,6 +69,8 @@ func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
 		return graph.Batch{}, err
 	}
 	c.linkAzureAccess(&batch, uses, assignments, roles)
+	// A failed lookup leaves audit_events unset. Inventory still ingests.
+	c.attachAuditEvents(ctx, c.activityLogs(cred), &batch)
 	return batch, nil
 }
 

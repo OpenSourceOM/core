@@ -6,8 +6,8 @@ package graph
 import "encoding/json"
 
 // AuditEventsProperty is the node property that holds recent cloud audit
-// events attached to an identity or resource. The AWS collector writes it.
-// A plugin may set the same shape. Azure and GCP collectors do not.
+// events attached to an identity or resource. The AWS and Azure collectors
+// write it. A plugin may set the same shape. The GCP collector does not.
 const AuditEventsProperty = "audit_events"
 
 // AuditEvent is one management event attached to existing graph nodes.
