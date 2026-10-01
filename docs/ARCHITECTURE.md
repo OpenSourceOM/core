@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Architecture
 
-> **Status:** Phase 3. The ordered path is complete: the collector plugin SDK, Helm, the embedded rule pack, and cloud audit context from CloudTrail, Activity Log, and Admin Activity logs, alongside Phase 2 CSPM rules, blast radius, Kubernetes ingest, and exports. Further rule packs stay open for contributors.
+> **Status:** Phase 3 has shipped. The collector plugin SDK, Helm, the embedded rule pack, and cloud audit context from CloudTrail, Activity Log, and Admin Activity logs are in the tree, alongside Phase 2 CSPM rules, blast radius, Kubernetes ingest, and exports. Further rule packs stay open for contributors.
 
 ## Overview
 
@@ -70,9 +70,9 @@ See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings
 - **Dev:** Docker Compose — Postgres + API (`docker compose up -d`); CLI can also target Postgres directly
 - **Prod:** Helm chart in `deploy/helm/opensourceom/` (API, optional Postgres, optional scheduled collectors)
 
-## What's next (Phase 3)
+## Phase 3
 
-Making the skeleton true, in order:
+Shipped, in this order:
 
 - Self-hosted operability (console). Read routes honor the API secret, and the Helm chart schedules collectors when credentials are set.
 - CVE enrichment tied to workload inventory. `om enrich cve` writes a finding only when a workload package or image matches.
@@ -80,7 +80,7 @@ Making the skeleton true, in order:
 - Attack path as the finding. A rules run writes one `attack_path` finding per existing finding on an internet-reachable workload that can reach a datastore, and stores the path as ordered node ids.
 - Cloud audit logs as graph context. `om scan aws` stores CloudTrail management events from the last 24 hours, `om scan azure` stores administrative Activity Log events from the same window, and `om scan gcp` stores Admin Activity audit logs from the same window, on the identity and resource they name when that resource is on an exposed path. `GET /v1/graph/query` returns those events in `audits` for each path that contains the resource. Entra ID sign-in logs, S3 data events such as `GetObject`, and GCP Data Access logs are not collected.
 
-Further community rule packs (PCI and additional CIS mappings) stay open for contributors ([#10](https://github.com/OpenSourceOM/core/issues/10)). That issue does not close the phase.
+Further community rule packs (PCI and additional CIS mappings) stay open for contributors ([#10](https://github.com/OpenSourceOM/core/issues/10)).
 
 Issue links: [ROADMAP.md](./ROADMAP.md)
 
