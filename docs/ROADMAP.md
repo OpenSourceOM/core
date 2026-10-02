@@ -33,11 +33,12 @@ High-level plan for OpenSourceOM core. Timelines are approximate and community-d
 
 ## Phase 3 — Ecosystem
 
+Phase 3 is complete.
+
 - [x] Plugin SDK for custom collectors (`sdk/collector`, `om scan plugin`)
 - [x] Helm chart for production Kubernetes
 - [x] Community rule packs (CIS AWS–inspired YAML pack + embed loader)
 - [x] Sample environment (`om scan demo`)
-- [ ] Broader community rule packs (PCI and additional CIS mappings) — [#10](https://github.com/OpenSourceOM/core/issues/10). This stays open for a contributor. It does not close the phase.
 
 Phases 0–2 shipped the walking skeleton. Exposure and identity edges now follow the cloud and Kubernetes. CVE findings follow package and image inventory on the workload. Datastores carry a sensitivity mark when a tag or label names one. A rules run writes an attack-path finding for each finding already on an internet-reachable workload that can reach a datastore. `om scan aws` attaches recent CloudTrail management events, `om scan azure` attaches recent Activity Log events, and `om scan gcp` attaches recent Admin Activity audit logs, to the identity and resource they name. Path queries return an event when that resource is on the path.
 
@@ -55,7 +56,11 @@ The path, in order:
 
 `om scan aws` reads CloudTrail management events from the last 24 hours. `om scan azure` reads administrative Activity Log events over the same window. `om scan gcp` reads Admin Activity audit logs over the same window. An event is stored on the identity and the resource it names when that resource sits on an exposed path. Named path queries list those events when the resource is on the returned path. Data Access logs, Entra ID sign-in logs, and S3 object data events such as `GetObject` stay out.
 
-The ordered path above is complete. [#10](https://github.com/OpenSourceOM/core/issues/10) stays open for a contributor who wants another rule pack. It does not reopen the phase.
+The ordered path above is complete.
+
+## After Phase 3
+
+[#10](https://github.com/OpenSourceOM/core/issues/10) stays open for a contributor who wants another rule pack (PCI and additional CIS mappings). It does not reopen Phase 3.
 
 ## Open source vs. commercial
 

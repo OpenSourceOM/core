@@ -75,7 +75,7 @@ deploy/helm/         Production Kubernetes chart
 
 ## Quick start
 
-Phase 2 stack — Postgres, multi-cloud + Kubernetes collectors, CSPM rules, CVE enrichment, blast-radius analysis, exports, and a web console.
+Phase 3 has shipped — Postgres, multi-cloud and Kubernetes collectors, CSPM rules, inventory-backed CVE enrichment, blast-radius analysis, attack-path findings, cloud audit context, exports, a collector plugin SDK, a Helm chart, and a web console.
 
 ```bash
 git clone https://github.com/OpenSourceOM/core.git
