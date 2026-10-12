@@ -21,7 +21,7 @@ OpenSourceOM Core is the platform behind [opensourceom.org](https://opensourceom
 
 Traditional scanners flood you with CVEs and misconfigurations. OpenSourceOM connects the dots — showing which findings sit on paths from the internet to your sensitive data and privileged identities.
 
-> **Status:** Phase 3 has shipped. CSPM rules, identity blast radius, Kubernetes ingest, exports, a collector plugin SDK, and a Helm chart are available. CVE findings follow package and image inventory. Datastores can carry a sensitivity mark from a tag or label. A rules run writes an attack-path finding when a workload finding sits on a path to a datastore. `om scan aws` attaches recent CloudTrail management events, `om scan azure` attaches recent Activity Log events, and `om scan gcp` attaches recent Admin Activity audit logs, to the identity and resource on that path. Further rule packs stay open for contributors ([#10](https://github.com/OpenSourceOM/core/issues/10)). See the [roadmap](./docs/ROADMAP.md).
+> **Status:** Phase 3 has shipped. Further rule packs stay open for contributors ([#10](https://github.com/OpenSourceOM/core/issues/10)). See the [roadmap](./docs/ROADMAP.md).
 
 ## Why this exists
 
@@ -39,7 +39,7 @@ OpenSourceOM brings that graph-first model to teams that want:
 |------------|-------------|
 | **Security graph** | Model workloads, identities, network paths, data stores, and findings as nodes and edges |
 | **Attack path analysis** | Query reachable paths — e.g. internet → CVE → prod database |
-| **Risk prioritization** | Rank findings by exposure, blast radius, and path length — not CVSS alone |
+| **Risk prioritization** | Score findings from base severity plus internet reachability, a path to a datastore, and admin access |
 | **CSPM** | Graph-context policy rules with prioritized findings |
 | **Multi-cloud** | AWS, Azure, GCP, and Kubernetes collectors |
 
@@ -57,7 +57,7 @@ Full design: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 ## Repository layout
 
 ```
-cmd/om/              `om` CLI (migrate, serve, scan, enrich, rules, identity, export)
+cmd/om/              `om` CLI (migrate, serve, scan, enrich, rules, identity, export, graph, paths)
 sdk/collector/       Public SDK for external collector plugins
 examples/collector/  Sample plugin (`om scan plugin`)
 internal/collectors/ AWS, Azure, GCP, Kubernetes, demo graph
@@ -74,8 +74,6 @@ deploy/helm/         Production Kubernetes chart
 ```
 
 ## Quick start
-
-Phase 3 has shipped — Postgres, multi-cloud and Kubernetes collectors, CSPM rules, inventory-backed CVE enrichment, blast-radius analysis, attack-path findings, cloud audit context, exports, a collector plugin SDK, a Helm chart, and a web console.
 
 ```bash
 git clone https://github.com/OpenSourceOM/core.git
@@ -122,7 +120,7 @@ go build -o example-collector ./examples/collector
 open http://localhost:8080
 ```
 
-Compose sets `OM_API_SECRET`. The console sends that value as `X-API-Key` from `localStorage.om_api_key` on every `/v1` call except health. Leave the secret empty to keep local API calls open.
+`.env.example` sets `OM_API_SECRET=change-me-in-production`, and Compose passes that into the API. In the console, paste that value into the API key field and click **Save API key**. The console then sends it as `X-API-Key` on every `/v1` call except health. Leave the secret empty to keep local API calls open.
 
 **API endpoints:** `GET /v1/health`, `POST /v1/ingest`, `GET /v1/findings`, `GET /v1/graph/snapshot`, `POST /v1/rules/run`, `GET /v1/identity/blast-radius`
 
@@ -137,7 +135,7 @@ Compose sets `OM_API_SECRET`. The console sends that value as `X-API-Key` from `
 ./om scan plugin -- ./my-collector
 ```
 
-For local CLI-only use without Docker API, run `docker compose up -d postgres` and set `POSTGRES_HOST=localhost`.
+The CLI does not read `.env`. It defaults `POSTGRES_HOST` to `localhost`, which matches the Postgres port Compose publishes, so the host commands above reach the database. Set `POSTGRES_HOST=localhost` only if your shell already exports `POSTGRES_HOST=postgres`. For CLI-only use without the API container, run `docker compose up -d postgres`.
 
 **Kubernetes:**
 
