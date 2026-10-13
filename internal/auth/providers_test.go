@@ -87,6 +87,10 @@ func TestGitHubExchangeUsesNumericID(t *testing.T) {
 			_, _ = io.WriteString(w, `{"access_token":"tok","token_type":"Bearer","expires_in":3600}`)
 			return
 		}
+		if r.URL.Path == "/user/emails" {
+			_, _ = io.WriteString(w, `[{"email":"octocat@example.com","verified":true,"primary":true},{"email":"hidden@example.com","verified":false}]`)
+			return
+		}
 		if r.Header.Get("Accept") != "application/vnd.github+json" {
 			t.Errorf("accept = %q", r.Header.Get("Accept"))
 		}
@@ -97,11 +101,12 @@ func TestGitHubExchangeUsesNumericID(t *testing.T) {
 	provider := newGitHub("id", "secret")
 	provider.config.Endpoint = oauth2.Endpoint{AuthURL: server.URL + "/auth", TokenURL: server.URL + "/token"}
 	provider.userInfoURL = server.URL + "/user"
+	provider.emailsURL = server.URL + "/user/emails"
 	identity, err := provider.Exchange(context.Background(), "code", "http://localhost/cb")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if identity.Subject != "42" || identity.Login != "octocat" || identity.Provider != ProviderGitHub {
+	if identity.Subject != "42" || identity.Login != "octocat" || identity.Provider != ProviderGitHub || len(identity.Emails) != 1 || identity.Emails[0] != "octocat@example.com" {
 		t.Fatalf("identity = %+v", identity)
 	}
 }

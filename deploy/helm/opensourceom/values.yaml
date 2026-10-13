@@ -14,8 +14,7 @@ service:
 
 api:
   env: production
-  secret: ""
-  # Browser origin for OAuth callbacks and the setup link. No trailing path.
+  # Browser origin for OAuth callbacks and invite links. No trailing path.
   publicURL: ""
   google:
     clientId: ""
@@ -23,6 +22,12 @@ api:
   github:
     clientId: ""
     clientSecret: ""
+  smtp:
+    host: ""
+    port: 587
+    username: ""
+    password: ""
+    from: ""
 
 postgres:
   enabled: true

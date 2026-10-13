@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/OpenSourceOM/core/internal/auth"
 )
 
 type fakeHealthChecker struct {
@@ -72,8 +74,10 @@ func TestHandleHealth(t *testing.T) {
 	}
 }
 
-func TestAPISecretGatesV1Routes(t *testing.T) {
-	server := &Server{health: fakeHealthChecker{}, apiSecret: "secret"}
+func TestPersonalTokenGatesV1Routes(t *testing.T) {
+	directory := newMemoryDirectory()
+	directory.rememberToken("secret", auth.Admin{ID: "admin-1", Provider: auth.ProviderGitHub, Subject: "1", Login: "ada"})
+	server := &Server{health: fakeHealthChecker{}, admins: directory}
 	handler := server.Handler()
 
 	tests := []struct {
@@ -118,13 +122,13 @@ func TestAPISecretGatesV1Routes(t *testing.T) {
 	}
 }
 
-func TestAPISecretUnsetLeavesRoutesOpen(t *testing.T) {
+func TestRoutesStayClosedWithoutToken(t *testing.T) {
 	handler := (&Server{}).Handler()
 	request := httptest.NewRequest(http.MethodGet, "/v1/rules", nil)
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusUnauthorized)
 	}
 }
 

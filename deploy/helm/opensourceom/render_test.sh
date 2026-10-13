@@ -6,7 +6,7 @@
 set -euo pipefail
 
 chart="$(cd "$(dirname "$0")" && pwd)"
-base=(--set api.secret=test --set postgres.password=test)
+base=(--set postgres.password=test)
 
 if ! command -v helm >/dev/null 2>&1; then
   echo "helm is required" >&2
@@ -52,6 +52,7 @@ fi
 helm lint "$chart" "${base[@]}"
 
 render default
+assert_absent "$workdir/default.yaml" "OM_API_SECRET" "default install still set a shared API secret"
 assert_absent "$workdir/default.yaml" "kind: CronJob" "default install created a CronJob"
 assert_absent "$workdir/default.yaml" "kind: ClusterRole$" "default install created scan RBAC"
 assert_absent "$workdir/default.yaml" "- demo" "default install scheduled the demo scan"

@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,16 +15,20 @@ import (
 
 func TestConsoleLoginCreatesAdminSession(t *testing.T) {
 	directory := newMemoryDirectory()
-	token := directory.addInvite("")
-	provider := fakeProvider{identity: auth.Identity{Provider: auth.ProviderGitHub, Subject: "7", Login: "ada", Name: "Ada"}}
-	server := NewServer(nil, "secret").WithConsoleAuth(ConsoleAuth{
+	var sentTo, sentLink string
+	provider := fakeProvider{identity: auth.Identity{Provider: auth.ProviderGitHub, Subject: "7", Login: "ada", Name: "Ada", Emails: []string{"ada@example.com"}}}
+	server := NewServer(nil).WithConsoleAuth(ConsoleAuth{
 		Directory: directory,
 		PublicURL: "http://localhost:8080",
 		Providers: map[string]auth.Provider{auth.ProviderGitHub: provider},
+		SendInvite: func(_ context.Context, to, link string) error {
+			sentTo, sentLink = to, link
+			return nil
+		},
 	})
 	handler := server.Handler()
 
-	start := httptest.NewRequest(http.MethodGet, "/auth/github/start?invite="+token, nil)
+	start := httptest.NewRequest(http.MethodGet, "/auth/github/start", nil)
 	startRec := httptest.NewRecorder()
 	handler.ServeHTTP(startRec, start)
 	if startRec.Code != http.StatusFound {
@@ -57,29 +60,40 @@ func TestConsoleLoginCreatesAdminSession(t *testing.T) {
 		t.Fatalf("session rules status = %d", rulesRec.Code)
 	}
 
-	keyOnly := httptest.NewRequest(http.MethodPost, "/v1/admins/invites", nil)
-	keyOnly.Header.Set("X-API-Key", "secret")
+	sessionProbe := httptest.NewRequest(http.MethodGet, "/v1/auth/session", nil)
+	sessionProbe.AddCookie(session)
+	sessionRec := httptest.NewRecorder()
+	handler.ServeHTTP(sessionRec, sessionProbe)
+	if sessionRec.Code != http.StatusOK || !strings.Contains(sessionRec.Body.String(), `"api_token"`) {
+		t.Fatalf("session = %d %s", sessionRec.Code, sessionRec.Body.String())
+	}
+
+	keyOnly := httptest.NewRequest(http.MethodPost, "/v1/admins/invites", strings.NewReader(`{"email":"next@example.com"}`))
+	keyOnly.Header.Set("X-API-Key", directory.rawToken())
 	keyRec := httptest.NewRecorder()
 	handler.ServeHTTP(keyRec, keyOnly)
 	if keyRec.Code != http.StatusUnauthorized {
-		t.Fatalf("api key invite status = %d", keyRec.Code)
+		t.Fatalf("api token invite status = %d", keyRec.Code)
 	}
 
-	invite := httptest.NewRequest(http.MethodPost, "/v1/admins/invites", nil)
+	rulesToken := httptest.NewRequest(http.MethodGet, "/v1/rules", nil)
+	rulesToken.Header.Set("Authorization", "Bearer "+directory.rawToken())
+	rulesTokenRec := httptest.NewRecorder()
+	handler.ServeHTTP(rulesTokenRec, rulesToken)
+	if rulesTokenRec.Code != http.StatusOK {
+		t.Fatalf("token rules status = %d", rulesTokenRec.Code)
+	}
+
+	invite := httptest.NewRequest(http.MethodPost, "/v1/admins/invites", strings.NewReader(`{"email":"next@example.com"}`))
+	invite.Header.Set("Content-Type", "application/json")
 	invite.AddCookie(session)
 	inviteRec := httptest.NewRecorder()
 	handler.ServeHTTP(inviteRec, invite)
 	if inviteRec.Code != http.StatusCreated {
 		t.Fatalf("invite status = %d body %s", inviteRec.Code, inviteRec.Body.String())
 	}
-	var created struct {
-		URL string `json:"url"`
-	}
-	if err := json.Unmarshal(inviteRec.Body.Bytes(), &created); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(created.URL, "http://localhost:8080/setup/") {
-		t.Fatalf("invite url = %s", created.URL)
+	if sentTo != "next@example.com" || !strings.HasPrefix(sentLink, "http://localhost:8080/invite/") {
+		t.Fatalf("sent %s %s", sentTo, sentLink)
 	}
 
 	list := httptest.NewRequest(http.MethodGet, "/v1/admins", nil)
@@ -103,7 +117,7 @@ func TestConsoleLoginRejectsUnknownAccount(t *testing.T) {
 	directory := newMemoryDirectory()
 	directory.seed(auth.Admin{ID: "admin-1", Provider: auth.ProviderGoogle, Subject: "known", Login: "known@example.com"})
 	provider := fakeProvider{identity: auth.Identity{Provider: auth.ProviderGitHub, Subject: "9", Login: "stranger"}}
-	handler := NewServer(nil, "secret").WithConsoleAuth(ConsoleAuth{
+	handler := NewServer(nil).WithConsoleAuth(ConsoleAuth{
 		Directory: directory,
 		PublicURL: "https://om.example",
 		Providers: map[string]auth.Provider{auth.ProviderGitHub: provider},
@@ -126,7 +140,7 @@ func TestConsoleLoginRejectsUnknownAccount(t *testing.T) {
 }
 
 func TestAuthSessionStaysOpen(t *testing.T) {
-	handler := (&Server{apiSecret: "secret"}).Handler()
+	handler := (&Server{}).Handler()
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/v1/auth/session", nil))
 	if recorder.Code != http.StatusOK {
@@ -154,21 +168,50 @@ func (f fakeProvider) Exchange(context.Context, string, string) (auth.Identity, 
 }
 
 type memoryDirectory struct {
-	mu       sync.Mutex
-	admins   []auth.Admin
-	invites  map[string]memoryInvite
-	sessions map[string]string
+	mu         sync.Mutex
+	admins     []auth.Admin
+	invites    map[string]memoryInvite
+	sessions   map[string]string
+	tokens     map[string]string
+	previews   map[string]string
+	plainToken string
 }
 
 type memoryInvite struct {
 	expires  time.Time
 	consumed bool
+	email    string
 }
 
 func newMemoryDirectory() *memoryDirectory {
 	return &memoryDirectory{
 		invites:  map[string]memoryInvite{},
 		sessions: map[string]string{},
+		tokens:   map[string]string{},
+		previews: map[string]string{},
+	}
+}
+
+func (d *memoryDirectory) rawToken() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.plainToken
+}
+
+func (d *memoryDirectory) rememberToken(raw string, admin auth.Admin) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.tokens[auth.HashToken(raw)] = admin.ID
+	d.plainToken = raw
+	found := false
+	for _, existing := range d.admins {
+		if existing.ID == admin.ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		d.admins = append(d.admins, admin)
 	}
 }
 
@@ -268,9 +311,75 @@ func (d *memoryDirectory) AdminForSession(_ context.Context, sessionID string) (
 	return auth.Admin{}, auth.ErrNotFound
 }
 
-func (d *memoryDirectory) CreateInvite(context.Context, string) (string, time.Time, error) {
-	token := d.addInvite("admin")
+func (d *memoryDirectory) CreateInvite(_ context.Context, createdBy, email string) (string, time.Time, error) {
+	email, err := auth.NormalizeEmail(email)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	token := "invite-" + createdBy + "-" + email
+	d.invites[auth.HashToken(token)] = memoryInvite{expires: time.Now().Add(time.Hour), email: email}
 	return token, time.Now().Add(time.Hour), nil
+}
+
+func (d *memoryDirectory) DiscardInvite(_ context.Context, token string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.invites, auth.HashToken(token))
+	return nil
+}
+
+func (d *memoryDirectory) Bootstrap(_ context.Context, identity auth.Identity) (auth.Admin, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.admins) > 0 {
+		return auth.Admin{}, auth.ErrAdminsExist
+	}
+	admin := auth.Admin{
+		ID:       "admin-created",
+		Provider: identity.Provider,
+		Subject:  identity.Subject,
+		Login:    identity.Login,
+		Name:     identity.Name,
+		Email:    identity.Emails[0],
+	}
+	d.admins = append(d.admins, admin)
+	d.plainToken = "personal-token"
+	d.tokens[auth.HashToken(d.plainToken)] = admin.ID
+	d.previews[admin.ID] = d.plainToken
+	return admin, nil
+}
+
+func (d *memoryDirectory) AdminForToken(_ context.Context, token string) (auth.Admin, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	id, ok := d.tokens[auth.HashToken(token)]
+	if !ok {
+		return auth.Admin{}, auth.ErrNotFound
+	}
+	for _, admin := range d.admins {
+		if admin.ID == id {
+			return admin, nil
+		}
+	}
+	return auth.Admin{}, auth.ErrNotFound
+}
+
+func (d *memoryDirectory) TakeTokenPreview(_ context.Context, adminID string) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	preview := d.previews[adminID]
+	delete(d.previews, adminID)
+	return preview, nil
+}
+
+func (d *memoryDirectory) RotateToken(_ context.Context, adminID string) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.plainToken = "rotated-token"
+	d.tokens[auth.HashToken(d.plainToken)] = adminID
+	return d.plainToken, nil
 }
 
 func (d *memoryDirectory) PeekInvite(_ context.Context, token string) error {
@@ -289,6 +398,16 @@ func (d *memoryDirectory) AcceptInvite(_ context.Context, token string, identity
 	invite, ok := d.invites[auth.HashToken(token)]
 	if !ok || invite.consumed || !invite.expires.After(time.Now()) {
 		return auth.Admin{}, auth.ErrInviteInvalid
+	}
+	matched := false
+	for _, email := range identity.Emails {
+		if email == invite.email {
+			matched = true
+			break
+		}
+	}
+	if invite.email != "" && !matched {
+		return auth.Admin{}, auth.ErrEmailMismatch
 	}
 	for _, admin := range d.admins {
 		if admin.Provider == identity.Provider && admin.Subject == identity.Subject {

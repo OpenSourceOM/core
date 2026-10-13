@@ -33,25 +33,30 @@ var (
 	ErrInviteUsed      = errors.New("invite used")
 	ErrInviteExpired   = errors.New("invite expired")
 	ErrEmailUnverified = errors.New("email unverified")
+	ErrEmailMismatch   = errors.New("email mismatch")
+	ErrInvalidEmail    = errors.New("invalid email")
 )
 
 // Admin is a console operator. Provider and Subject are the identity.
-// Login and Name are labels from the identity provider.
+// Login, Name, and Email are labels from the identity provider.
 type Admin struct {
 	ID        string
 	Provider  string
 	Subject   string
 	Login     string
 	Name      string
+	Email     string
 	CreatedAt time.Time
 }
 
 // Identity is the account an identity provider just confirmed.
+// Emails are the verified addresses on that account.
 type Identity struct {
 	Provider string
 	Subject  string
 	Login    string
 	Name     string
+	Emails   []string
 }
 
 // Provider starts a login and exchanges the callback code for an identity.
@@ -70,9 +75,14 @@ type Directory interface {
 	CreateSession(ctx context.Context, adminID string) (sessionID string, expires time.Time, err error)
 	DeleteSession(ctx context.Context, sessionID string) error
 	AdminForSession(ctx context.Context, sessionID string) (Admin, error)
-	CreateInvite(ctx context.Context, createdBy string) (token string, expires time.Time, err error)
+	CreateInvite(ctx context.Context, createdBy, email string) (token string, expires time.Time, err error)
+	DiscardInvite(ctx context.Context, token string) error
 	PeekInvite(ctx context.Context, token string) error
 	AcceptInvite(ctx context.Context, token string, identity Identity) (Admin, error)
+	Bootstrap(ctx context.Context, identity Identity) (Admin, error)
+	AdminForToken(ctx context.Context, token string) (Admin, error)
+	TakeTokenPreview(ctx context.Context, adminID string) (string, error)
+	RotateToken(ctx context.Context, adminID string) (string, error)
 }
 
 // NewToken returns a URL-safe secret.
@@ -95,6 +105,7 @@ func (id Identity) normalized() (Identity, error) {
 	id.Subject = strings.TrimSpace(id.Subject)
 	id.Login = clip(id.Login, 200)
 	id.Name = clip(id.Name, 200)
+	id.Emails = normalizeEmailList(id.Emails)
 	if id.Provider != ProviderGoogle && id.Provider != ProviderGitHub {
 		return Identity{}, errors.New("unknown provider")
 	}
@@ -105,6 +116,46 @@ func (id Identity) normalized() (Identity, error) {
 		id.Login = id.Subject
 	}
 	return id, nil
+}
+
+func (id Identity) hasEmail(want string) bool {
+	want = strings.ToLower(strings.TrimSpace(want))
+	for _, email := range id.Emails {
+		if email == want {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeEmail returns a lowercased address suitable for an invite.
+func NormalizeEmail(email string) (string, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if len(email) == 0 || len(email) > 200 || strings.ContainsAny(email, " \t\r\n<>") {
+		return "", ErrInvalidEmail
+	}
+	local, domain, ok := strings.Cut(email, "@")
+	if !ok || local == "" || !strings.Contains(domain, ".") || strings.Contains(domain, "@") {
+		return "", ErrInvalidEmail
+	}
+	return email, nil
+}
+
+func normalizeEmailList(emails []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, email := range emails {
+		email = strings.ToLower(strings.TrimSpace(email))
+		if email == "" || seen[email] {
+			continue
+		}
+		if _, err := NormalizeEmail(email); err != nil {
+			continue
+		}
+		seen[email] = true
+		out = append(out, email)
+	}
+	return out
 }
 
 func clip(value string, max int) string {

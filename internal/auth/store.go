@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Store persists admins, one-time setup links, and sessions in Postgres.
+// Store persists admins, email invites, sessions, and personal API tokens.
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -43,7 +43,7 @@ func (s *Store) Count(ctx context.Context) (int, error) {
 
 func (s *Store) List(ctx context.Context) ([]Admin, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id::text, provider, subject, login, display_name, created_at
+		SELECT id::text, provider, subject, login, display_name, email, created_at
 		FROM admins
 		ORDER BY created_at ASC, id ASC
 	`)
@@ -137,11 +137,11 @@ func (s *Store) AdminForSession(ctx context.Context, sessionID string) (Admin, e
 	var admin Admin
 	var expires time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT a.id::text, a.provider, a.subject, a.login, a.display_name, a.created_at, s.expires_at
+		SELECT a.id::text, a.provider, a.subject, a.login, a.display_name, a.email, a.created_at, s.expires_at
 		FROM admin_sessions s
 		JOIN admins a ON a.id = s.admin_id
 		WHERE s.id = $1
-	`, HashToken(sessionID)).Scan(&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.CreatedAt, &expires)
+	`, HashToken(sessionID)).Scan(&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.CreatedAt, &expires)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Admin{}, ErrNotFound
 	}
@@ -155,16 +155,20 @@ func (s *Store) AdminForSession(ctx context.Context, sessionID string) (Admin, e
 	return admin, nil
 }
 
-func (s *Store) CreateInvite(ctx context.Context, createdBy string) (string, time.Time, error) {
+func (s *Store) CreateInvite(ctx context.Context, createdBy, email string) (string, time.Time, error) {
+	email, err := NormalizeEmail(email)
+	if err != nil {
+		return "", time.Time{}, err
+	}
 	raw, err := NewToken()
 	if err != nil {
 		return "", time.Time{}, err
 	}
 	expires := time.Now().UTC().Add(inviteTTL)
 	_, err = s.pool.Exec(ctx, `
-		INSERT INTO admin_invites (token_hash, created_by, expires_at)
-		VALUES ($1, $2, $3)
-	`, HashToken(raw), createdBy, expires)
+		INSERT INTO admin_invites (token_hash, created_by, expires_at, email)
+		VALUES ($1, $2, $3, $4)
+	`, HashToken(raw), createdBy, expires, email)
 	if invalidUUID(err) {
 		return "", time.Time{}, ErrNotFound
 	}
@@ -174,46 +178,134 @@ func (s *Store) CreateInvite(ctx context.Context, createdBy string) (string, tim
 	return raw, expires, nil
 }
 
-// RotateBootstrapInvite replaces unused setup links when the install has no
-// admin yet. The raw token is returned once so the caller can print it.
-func (s *Store) RotateBootstrapInvite(ctx context.Context) (string, time.Time, error) {
+func (s *Store) DiscardInvite(ctx context.Context, token string) error {
+	hash, err := inviteToken(token)
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, `
+		DELETE FROM admin_invites
+		WHERE token_hash = $1 AND consumed_at IS NULL
+	`, hash)
+	return err
+}
+
+func (s *Store) Bootstrap(ctx context.Context, identity Identity) (Admin, error) {
+	identity, err := identity.normalized()
+	if err != nil {
+		return Admin{}, err
+	}
+	if len(identity.Emails) == 0 {
+		return Admin{}, ErrEmailUnverified
+	}
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return "", time.Time{}, err
+		return Admin{}, err
 	}
 	defer tx.Rollback(ctx)
 
 	if _, err := tx.Exec(ctx, `LOCK TABLE admins IN SHARE ROW EXCLUSIVE MODE`); err != nil {
-		return "", time.Time{}, err
+		return Admin{}, err
 	}
 	var count int
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM admins`).Scan(&count); err != nil {
-		return "", time.Time{}, err
+		return Admin{}, err
 	}
 	if count > 0 {
-		return "", time.Time{}, ErrAdminsExist
+		return Admin{}, ErrAdminsExist
 	}
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM admin_invites
-		WHERE created_by IS NULL AND consumed_at IS NULL
-	`); err != nil {
-		return "", time.Time{}, err
-	}
-	raw, err := NewToken()
+	existing, found, err := findAdmin(ctx, tx, identity.Provider, identity.Subject)
 	if err != nil {
-		return "", time.Time{}, err
+		return Admin{}, err
 	}
-	expires := time.Now().UTC().Add(inviteTTL)
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO admin_invites (token_hash, expires_at)
-		VALUES ($1, $2)
-	`, HashToken(raw), expires); err != nil {
-		return "", time.Time{}, err
+	if found {
+		if err := tx.Commit(ctx); err != nil {
+			return Admin{}, err
+		}
+		return existing, nil
+	}
+	admin, err := insertAdmin(ctx, tx, identity, identity.Emails[0])
+	if err != nil {
+		return Admin{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return "", time.Time{}, err
+		return Admin{}, err
 	}
-	return raw, expires, nil
+	return admin, nil
+}
+
+func (s *Store) AdminForToken(ctx context.Context, token string) (Admin, error) {
+	if token == "" || len(token) > 128 {
+		return Admin{}, ErrNotFound
+	}
+	var admin Admin
+	err := s.pool.QueryRow(ctx, `
+		SELECT id::text, provider, subject, login, display_name, email, created_at
+		FROM admins
+		WHERE api_token_hash = $1
+	`, HashToken(token)).Scan(&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Admin{}, ErrNotFound
+	}
+	if err != nil {
+		return Admin{}, err
+	}
+	return admin, nil
+}
+
+func (s *Store) TakeTokenPreview(ctx context.Context, adminID string) (string, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	var preview *string
+	err = tx.QueryRow(ctx, `
+		SELECT api_token_preview FROM admins WHERE id = $1 FOR UPDATE
+	`, adminID).Scan(&preview)
+	if errors.Is(err, pgx.ErrNoRows) || invalidUUID(err) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	if preview == nil || *preview == "" {
+		if err := tx.Commit(ctx); err != nil {
+			return "", err
+		}
+		return "", nil
+	}
+	if _, err := tx.Exec(ctx, `UPDATE admins SET api_token_preview = NULL WHERE id = $1`, adminID); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return *preview, nil
+}
+
+func (s *Store) RotateToken(ctx context.Context, adminID string) (string, error) {
+	raw, err := NewToken()
+	if err != nil {
+		return "", err
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE admins
+		SET api_token_hash = $1, api_token_preview = NULL
+		WHERE id = $2
+	`, HashToken(raw), adminID)
+	if invalidUUID(err) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	if tag.RowsAffected() == 0 {
+		return "", ErrNotFound
+	}
+	return raw, nil
 }
 
 func (s *Store) PeekInvite(ctx context.Context, token string) error {
@@ -253,18 +345,19 @@ func (s *Store) AcceptInvite(ctx context.Context, token string, identity Identit
 	}
 	defer tx.Rollback(ctx)
 
-	// Same lock order as RotateBootstrapInvite and Delete: admins, then the invite row.
+	// Same lock order as Bootstrap and Delete: admins, then the invite row.
 	if _, err := tx.Exec(ctx, `LOCK TABLE admins IN SHARE ROW EXCLUSIVE MODE`); err != nil {
 		return Admin{}, err
 	}
 	var expires time.Time
 	var consumed *time.Time
+	var email *string
 	err = tx.QueryRow(ctx, `
-		SELECT expires_at, consumed_at
+		SELECT expires_at, consumed_at, email
 		FROM admin_invites
 		WHERE token_hash = $1
 		FOR UPDATE
-	`, hash).Scan(&expires, &consumed)
+	`, hash).Scan(&expires, &consumed, &email)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Admin{}, ErrInviteInvalid
 	}
@@ -273,6 +366,16 @@ func (s *Store) AcceptInvite(ctx context.Context, token string, identity Identit
 	}
 	if err := inviteState(expires, consumed); err != nil {
 		return Admin{}, err
+	}
+	invited := ""
+	if email != nil {
+		invited = *email
+	}
+	if invited == "" {
+		return Admin{}, ErrInviteInvalid
+	}
+	if !identity.hasEmail(invited) {
+		return Admin{}, ErrEmailMismatch
 	}
 
 	existing, found, err := findAdmin(ctx, tx, identity.Provider, identity.Subject)
@@ -289,7 +392,7 @@ func (s *Store) AcceptInvite(ctx context.Context, token string, identity Identit
 	if _, err := tx.Exec(ctx, `SAVEPOINT before_admin`); err != nil {
 		return Admin{}, err
 	}
-	admin, err := insertAdmin(ctx, tx, identity)
+	admin, err := insertAdmin(ctx, tx, identity, invited)
 	if uniqueViolation(err) {
 		if _, rollErr := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT before_admin`); rollErr != nil {
 			return Admin{}, rollErr
@@ -334,10 +437,10 @@ type querier interface {
 func findAdmin(ctx context.Context, q querier, provider, subject string) (Admin, bool, error) {
 	var admin Admin
 	err := q.QueryRow(ctx, `
-		SELECT id::text, provider, subject, login, display_name, created_at
+		SELECT id::text, provider, subject, login, display_name, email, created_at
 		FROM admins
 		WHERE provider = $1 AND subject = $2
-	`, provider, subject).Scan(&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.CreatedAt)
+	`, provider, subject).Scan(&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Admin{}, false, nil
 	}
@@ -347,14 +450,21 @@ func findAdmin(ctx context.Context, q querier, provider, subject string) (Admin,
 	return admin, true, nil
 }
 
-func insertAdmin(ctx context.Context, q querier, identity Identity) (Admin, error) {
+func insertAdmin(ctx context.Context, q querier, identity Identity, email string) (Admin, error) {
+	raw, err := NewToken()
+	if err != nil {
+		return Admin{}, err
+	}
+	if email == "" && len(identity.Emails) > 0 {
+		email = identity.Emails[0]
+	}
 	var admin Admin
-	err := q.QueryRow(ctx, `
-		INSERT INTO admins (provider, subject, login, display_name)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id::text, provider, subject, login, display_name, created_at
-	`, identity.Provider, identity.Subject, identity.Login, identity.Name).Scan(
-		&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.CreatedAt,
+	err = q.QueryRow(ctx, `
+		INSERT INTO admins (provider, subject, login, display_name, email, api_token_hash, api_token_preview)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id::text, provider, subject, login, display_name, email, created_at
+	`, identity.Provider, identity.Subject, identity.Login, identity.Name, email, HashToken(raw), raw).Scan(
+		&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.CreatedAt,
 	)
 	return admin, err
 }
@@ -365,7 +475,7 @@ type scanner interface {
 
 func scanAdmin(row scanner) (Admin, error) {
 	var admin Admin
-	err := row.Scan(&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.CreatedAt)
+	err := row.Scan(&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.CreatedAt)
 	return admin, err
 }
 

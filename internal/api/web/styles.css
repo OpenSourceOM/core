@@ -70,15 +70,30 @@ header h1 { margin: 0; font-size: 1.4rem; }
   padding: 0.45rem 0;
   border-top: 1px solid var(--border);
 }
-.admins input {
-  width: 100%;
+.invite-form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
   margin-top: 0.75rem;
+}
+.admins input, .token-banner input {
+  width: 100%;
   background: #0a1224;
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.45rem 0.6rem;
+  font: inherit;
 }
+.invite-form input { flex: 1; }
+.token-banner {
+  margin: 1rem 1.5rem 0;
+  padding: 1rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.token-banner p { margin: 0 0 0.6rem; }
 
 .stats {
   display: grid;
@@ -196,6 +211,7 @@ h2 { margin: 0 0 0.75rem; font-size: 1rem; }
 #console.hidden,
 #stats.hidden,
 #account.hidden,
-#admins-panel.hidden {
+#admins-panel.hidden,
+#token-banner.hidden {
   display: none;
 }

@@ -15,11 +15,12 @@ let currentAdmin = null;
 
 const providerLabels = { google: "Google", github: "GitHub" };
 const authErrors = {
-  invite_invalid: "This setup link is not valid. Use the latest link from the API logs, or ask an admin for a new one.",
-  invite_used: "This setup link was already used.",
-  invite_expired: "This setup link has expired.",
-  not_admin: "This Google or GitHub account is not an admin. Ask an admin for a setup link.",
-  email_unverified: "Google has not verified this email address.",
+  invite_invalid: "This invite is not valid. Ask an admin to send a new one.",
+  invite_used: "This invite was already used.",
+  invite_expired: "This invite has expired.",
+  not_admin: "This Google or GitHub account is not an admin. Ask an admin to invite you.",
+  email_mismatch: "Sign in with the Google or GitHub account for the invited email address.",
+  email_unverified: "The provider has not verified an email address for this account.",
   oauth_denied: "The sign-in was canceled.",
   oauth_state: "The sign-in session expired. Try again.",
   oauth_failed: "Sign-in failed. Try again.",
@@ -100,9 +101,18 @@ function clearConsoleError() {
   banner.classList.add("hidden");
 }
 
-function setupToken() {
-  const match = window.location.pathname.match(/^\/setup\/([^/]+)$/);
+function inviteToken() {
+  const match = window.location.pathname.match(/^\/invite\/([^/]+)$/);
   return match ? decodeURIComponent(match[1]) : "";
+}
+
+function showToken(token) {
+  const banner = document.getElementById("token-banner");
+  const field = document.getElementById("token-value");
+  field.value = token;
+  banner.classList.remove("hidden");
+  field.focus();
+  field.select();
 }
 
 function adminLabel(admin) {
@@ -117,6 +127,7 @@ function showSignedOut(message) {
   document.getElementById("stats").classList.add("hidden");
   document.getElementById("account").classList.add("hidden");
   document.getElementById("admins-panel").classList.add("hidden");
+  document.getElementById("token-banner").classList.add("hidden");
   const gate = document.getElementById("gate");
   gate.classList.remove("hidden");
   document.getElementById("gate-title").textContent = "Sign in";
@@ -125,7 +136,7 @@ function showSignedOut(message) {
 }
 
 function renderGate(session) {
-  const token = setupToken();
+  const token = inviteToken();
   const params = new URLSearchParams(window.location.search);
   const errorCode = params.get("error");
   const providers = session.providers || [];
@@ -136,19 +147,19 @@ function renderGate(session) {
   document.getElementById("account").classList.add("hidden");
 
   let title = "Sign in";
-  let message = "Use the Google or GitHub account an admin already approved.";
+  let message = "Sign in with Google or GitHub.";
   if (!session.login_enabled) {
     title = "Console login is not available";
     message = "The API process does not have an admin store.";
   } else if (providers.length === 0) {
     title = "Sign-in is not configured";
     message = "Set OM_GOOGLE_CLIENT_ID and OM_GOOGLE_CLIENT_SECRET, or OM_GITHUB_CLIENT_ID and OM_GITHUB_CLIENT_SECRET, then restart the API.";
-  } else if (session.needs_setup && token) {
-    title = "Create the admin account";
-    message = "The first Google or GitHub account to finish this setup link becomes the admin.";
+  } else if (token) {
+    title = "Accept the invite";
+    message = "Sign in with the Google or GitHub account for the invited email address.";
   } else if (session.needs_setup) {
-    title = "Setup required";
-    message = "No admin exists yet. Open the setup link printed in the API logs.";
+    title = "Create the admin account";
+    message = "The first Google or GitHub sign-in becomes the admin of this install.";
   }
 
   if (errorCode && authErrors[errorCode]) {
@@ -159,7 +170,7 @@ function renderGate(session) {
 
   const actions = document.getElementById("gate-actions");
   actions.replaceChildren();
-  const canStart = providers.length > 0 && (token || !session.needs_setup) && session.login_enabled;
+  const canStart = providers.length > 0 && session.login_enabled;
   if (!canStart) return;
   providers.forEach((provider) => {
     const link = document.createElement("a");
@@ -183,6 +194,7 @@ function showConsole(session) {
   if (window.location.pathname !== "/") {
     window.history.replaceState({}, "", "/");
   }
+  if (session.api_token) showToken(session.api_token);
 }
 
 async function renderAdmins() {
@@ -195,7 +207,7 @@ async function renderAdmins() {
   panel.appendChild(heading);
   const intro = document.createElement("p");
   intro.className = "meta";
-  intro.textContent = "Every admin can run the console. Send a setup link to add another one. It expires in 72 hours.";
+  intro.textContent = "Every admin can run the console. Invite another person by email. They sign in with the Google or GitHub account for that address. The invite expires in 72 hours.";
   panel.appendChild(intro);
 
   const list = document.createElement("ul");
@@ -216,23 +228,53 @@ async function renderAdmins() {
   });
   panel.appendChild(list);
 
-  const create = document.createElement("button");
-  create.type = "button";
-  create.textContent = "Create setup link";
-  create.addEventListener("click", async () => {
-    const created = await fetchJSON("/v1/admins/invites", { method: "POST" });
-    let field = panel.querySelector("input");
-    if (!field) {
-      field = document.createElement("input");
-      field.readOnly = true;
-      field.setAttribute("aria-label", "Setup link");
-      panel.appendChild(field);
+  const form = document.createElement("form");
+  form.className = "invite-form";
+  const email = document.createElement("input");
+  email.type = "email";
+  email.required = true;
+  email.placeholder = "ada@example.com";
+  email.setAttribute("aria-label", "Email");
+  const send = document.createElement("button");
+  send.type = "submit";
+  send.textContent = "Send invite";
+  form.append(email, send);
+  const status = document.createElement("p");
+  status.className = "meta invite-status";
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    send.disabled = true;
+    try {
+      const created = await fetchJSON("/v1/admins/invites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.value }),
+      });
+      status.textContent = `Invite sent to ${created.email}. It expires in 72 hours.`;
+      email.value = "";
+    } catch (err) {
+      status.textContent = err.message;
+    } finally {
+      send.disabled = false;
     }
-    field.value = created.url;
-    field.focus();
-    field.select();
   });
-  panel.appendChild(create);
+  panel.append(form, status);
+
+  const rotate = document.createElement("button");
+  rotate.type = "button";
+  rotate.textContent = "Rotate API token";
+  rotate.addEventListener("click", async () => {
+    rotate.disabled = true;
+    try {
+      const created = await fetchJSON("/v1/admins/token", { method: "POST" });
+      showToken(created.token);
+    } catch (err) {
+      showConsoleError(err);
+    } finally {
+      rotate.disabled = false;
+    }
+  });
+  panel.appendChild(rotate);
 }
 
 async function removeAdmin(id) {

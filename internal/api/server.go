@@ -5,7 +5,6 @@ package api
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,10 +25,10 @@ type Server struct {
 	health        healthChecker
 	querier       *graph.Querier
 	rules         *rules.Engine
-	apiSecret     string
 	admins        auth.Directory
 	publicURL     string
 	providers     map[string]auth.Provider
+	sendInvite    func(ctx context.Context, to, link string) error
 	secureCookies bool
 }
 
@@ -37,13 +36,12 @@ type healthChecker interface {
 	Ping(context.Context) error
 }
 
-func NewServer(store *graph.Store, apiSecret string) *Server {
+func NewServer(store *graph.Store) *Server {
 	return &Server{
-		store:     store,
-		health:    store,
-		querier:   graph.NewQuerier(store),
-		rules:     rules.NewEngine(store),
-		apiSecret: apiSecret,
+		store:   store,
+		health:  store,
+		querier: graph.NewQuerier(store),
+		rules:   rules.NewEngine(store),
 	}
 }
 
@@ -66,20 +64,20 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /v1/admins", s.handleListAdmins)
 	mux.HandleFunc("POST /v1/admins/invites", s.handleCreateInvite)
+	mux.HandleFunc("POST /v1/admins/token", s.handleRotateToken)
 	mux.HandleFunc("DELETE /v1/admins/{id}", s.handleDeleteAdmin)
 	mux.HandleFunc("GET /auth/{provider}/start", s.handleAuthStart)
 	mux.HandleFunc("GET /auth/{provider}/callback", s.handleAuthCallback)
 	mux.HandleFunc("GET /login", handleConsolePage)
-	mux.HandleFunc("GET /setup/{token}", handleConsolePage)
+	mux.HandleFunc("GET /invite/{token}", handleConsolePage)
 	mux.Handle("/", uiHandler())
 	mux.Handle("/ui/", http.StripPrefix("/ui/", uiHandler()))
 	return s.requireAPIAuth(mux)
 }
 
-// requireAPIAuth demands the shared API secret or a console session on every
+// requireAPIAuth demands a console session or that admin's API token on every
 // /v1 route except health, the session probe, and logout. The HTML stays
-// open so the login page can load. An empty secret leaves graph routes open
-// for local development. Admin management still requires a session.
+// open so the login page can load. Admin management still requires a session.
 func (s *Server) requireAPIAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if publicV1(r) {
@@ -340,14 +338,15 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) authorize(r *http.Request) bool {
-	if s.apiSecret == "" {
+	if _, ok := s.currentAdmin(r); ok {
 		return true
 	}
-	if secretMatch(presentedSecret(r), s.apiSecret) {
-		return true
+	token := presentedSecret(r)
+	if token == "" || s.admins == nil {
+		return false
 	}
-	_, ok := s.currentAdmin(r)
-	return ok
+	_, err := s.admins.AdminForToken(r.Context(), token)
+	return err == nil
 }
 
 func presentedSecret(r *http.Request) string {
@@ -356,13 +355,6 @@ func presentedSecret(r *http.Request) string {
 		return strings.TrimPrefix(header, "Bearer ")
 	}
 	return r.Header.Get("X-API-Key")
-}
-
-func secretMatch(got, want string) bool {
-	if got == "" || len(got) != len(want) {
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

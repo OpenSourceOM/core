@@ -122,9 +122,9 @@ open http://localhost:8080
 
 The API image compiles `github.com/aws/aws-sdk-go-v2/service/ec2`. Give Docker at least 6 GiB of RAM.
 
-`.env.example` sets `OM_API_SECRET=change-me-in-production`, and Compose passes that into the API. Collectors, CI, and `curl` send it as `Authorization: Bearer` or `X-API-Key` on every `/v1` call except health. Leave the secret empty to keep those calls open.
+People sign in with Google or GitHub. Set `OM_GOOGLE_CLIENT_ID` and `OM_GOOGLE_CLIENT_SECRET`, or the `OM_GITHUB_*` pair, and register the callback `{OM_PUBLIC_URL}/auth/google/callback` or `{OM_PUBLIC_URL}/auth/github/callback`. The first successful sign-in becomes the admin. Keep the API port private until that happens. That admin invites the next one by email, which needs `OM_SMTP_HOST`, `OM_SMTP_PORT`, and `OM_SMTP_FROM`. The invited person signs in with the Google or GitHub account for that address. Every console account is an admin.
 
-The console does not use that secret. People sign in with Google or GitHub. Set `OM_GOOGLE_CLIENT_ID` and `OM_GOOGLE_CLIENT_SECRET`, or the `OM_GITHUB_*` pair, and register the callback `{OM_PUBLIC_URL}/auth/google/callback` or `{OM_PUBLIC_URL}/auth/github/callback`. On an install with no admin, the API log prints a one-time setup link. The first account to finish that link becomes the admin and can create more setup links. Every console account is an admin.
+Each admin gets a personal API token, shown once in the console. Collectors, CI, and `curl` send it as `Authorization: Bearer` or `X-API-Key` on every `/v1` call except health, the session probe, and logout. The CLI talks to Postgres and does not use the token. A token cannot invite or remove admins.
 
 **API endpoints:** `GET /v1/health`, `POST /v1/ingest`, `GET /v1/findings`, `GET /v1/graph/snapshot`, `POST /v1/rules/run`, `GET /v1/identity/blast-radius`
 
@@ -146,7 +146,6 @@ The CLI does not read `.env`. It defaults `POSTGRES_HOST` to `localhost`, which 
 ```bash
 docker build -t ghcr.io/opensourceom/core:0.3.0 .
 helm install om deploy/helm/opensourceom \
-  --set api.secret='change-me' \
   --set postgres.password='change-me' \
   --set image.tag=0.3.0
 ```

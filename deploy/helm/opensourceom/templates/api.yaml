@@ -48,11 +48,6 @@ spec:
               value: {{ .Values.api.env | quote }}
             - name: OM_API_PORT
               value: "8080"
-            - name: OM_API_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "opensourceom.fullname" . }}
-                  key: OM_API_SECRET
             {{- with .Values.api.publicURL }}
             - name: OM_PUBLIC_URL
               value: {{ . | quote }}
@@ -74,6 +69,25 @@ spec:
                 secretKeyRef:
                   name: {{ include "opensourceom.fullname" . }}
                   key: OM_GITHUB_CLIENT_SECRET
+            {{- end }}
+            {{- if .Values.api.smtp.host }}
+            - name: OM_SMTP_HOST
+              value: {{ .Values.api.smtp.host | quote }}
+            - name: OM_SMTP_PORT
+              value: {{ .Values.api.smtp.port | quote }}
+            - name: OM_SMTP_FROM
+              value: {{ required "api.smtp.from is required when api.smtp.host is set" .Values.api.smtp.from | quote }}
+            {{- if .Values.api.smtp.username }}
+            - name: OM_SMTP_USERNAME
+              value: {{ .Values.api.smtp.username | quote }}
+            {{- end }}
+            {{- if .Values.api.smtp.password }}
+            - name: OM_SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "opensourceom.fullname" . }}
+                  key: OM_SMTP_PASSWORD
+            {{- end }}
             {{- end }}
             {{- include "opensourceom.dbEnv" . | nindent 12 }}
           readinessProbe:

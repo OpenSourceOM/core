@@ -14,11 +14,15 @@ type Config struct {
 	LogLevel            string
 	PublicURL           string
 	APIPort             int
-	APISecret           string
 	GoogleClientID      string
 	GoogleClientSecret  string
 	GitHubClientID      string
 	GitHubClientSecret  string
+	SMTPHost            string
+	SMTPPort            int
+	SMTPUsername        string
+	SMTPPassword        string
+	SMTPFrom            string
 	DatabaseURL         string
 	AWSRegion           string
 	AzureSubscriptionID string
@@ -38,6 +42,7 @@ type Config struct {
 
 func Load() Config {
 	port, _ := strconv.Atoi(getEnv("OM_API_PORT", "8080"))
+	smtpPort, _ := strconv.Atoi(getEnv("OM_SMTP_PORT", "587"))
 	user := getEnv("POSTGRES_USER", "opensourceom")
 	pass := getEnv("POSTGRES_PASSWORD", "opensourceom")
 	db := getEnv("POSTGRES_DB", "opensourceom")
@@ -57,11 +62,15 @@ func Load() Config {
 		LogLevel:            getEnv("OM_LOG_LEVEL", "info"),
 		PublicURL:           getEnv("OM_PUBLIC_URL", "http://localhost:8080"),
 		APIPort:             port,
-		APISecret:           getEnv("OM_API_SECRET", "change-me-in-production"),
 		GoogleClientID:      getEnv("OM_GOOGLE_CLIENT_ID", ""),
 		GoogleClientSecret:  getEnv("OM_GOOGLE_CLIENT_SECRET", ""),
 		GitHubClientID:      getEnv("OM_GITHUB_CLIENT_ID", ""),
 		GitHubClientSecret:  getEnv("OM_GITHUB_CLIENT_SECRET", ""),
+		SMTPHost:            getEnv("OM_SMTP_HOST", ""),
+		SMTPPort:            smtpPort,
+		SMTPUsername:        getEnv("OM_SMTP_USERNAME", ""),
+		SMTPPassword:        getEnv("OM_SMTP_PASSWORD", ""),
+		SMTPFrom:            getEnv("OM_SMTP_FROM", ""),
 		DatabaseURL:         databaseURL,
 		AWSRegion:           getEnv("AWS_REGION", "us-east-1"),
 		AzureSubscriptionID: getEnv("AZURE_SUBSCRIPTION_ID", ""),

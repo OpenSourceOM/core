@@ -39,7 +39,7 @@ SPDX-License-Identifier: Apache-2.0
 | **CSPM rules** | `internal/rules/` | Built-in policies, embedded YAML packs, and attack-path findings |
 | **CVE enrichment** | `internal/enrichment/` | Match workload packages and images, then NVD or a catalog for CVSS |
 | **Exports** | `internal/export/` | SIEM JSONL, Slack webhooks, Jira issues |
-| **API** | `internal/api/` | REST + embedded console at `/`; API secret or console session on `/v1` except health |
+| **API** | `internal/api/` | REST + embedded console at `/`; personal token or console session on `/v1` except health |
 | **CLI** | `cmd/om/`, `internal/cmd/` | `migrate`, `serve`, `scan`, `rules`, `identity`, `export`, … |
 | **Helm** | `deploy/helm/opensourceom/` | API, optional Postgres, optional scheduled collectors |
 
@@ -60,7 +60,7 @@ See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings
 | Collectors | Go (AWS/Azure/GCP/K8s SDKs) plus out-of-process plugins | Shipped |
 | Graph store | PostgreSQL | Shipped |
 | CSPM rules | Go rule engine + graph context | Shipped |
-| API | REST (`net/http`) + API secret and Google/GitHub console login | Shipped |
+| API | REST (`net/http`) + personal tokens and Google/GitHub console login | Shipped |
 | UI | Embedded static HTML/JS (vis-network) | Shipped |
 | Exports | Webhooks + JSONL + Jira REST | Shipped |
 | Prod deployment | Kubernetes Helm chart | Shipped |
@@ -74,7 +74,7 @@ See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings
 
 Shipped, in this order:
 
-- Self-hosted operability (console). Read routes honor the API secret, and the Helm chart schedules collectors when credentials are set.
+- Self-hosted operability (console). Read routes require a personal admin token, and the Helm chart schedules collectors when credentials are set.
 - CVE enrichment tied to workload inventory. `om enrich cve` writes a finding only when a workload package or image matches.
 - Crown-jewel mark on datastores. A tag or label named `sensitivity` or `data-class` is stored on the datastore, and `internet-to-sensitive-datastore` keeps only those paths.
 - Attack path as the finding. A rules run writes one `attack_path` finding per existing finding on an internet-reachable workload that can reach a datastore, and stores the path as ordered node ids.

@@ -23,31 +23,39 @@ func TestStoreInviteSessionAndLastAdmin(t *testing.T) {
 	store := openAuthStore(t)
 	ctx := context.Background()
 
-	token, _, err := store.RotateBootstrapInvite(ctx)
-	if err != nil {
-		t.Fatalf("bootstrap: %v", err)
-	}
-	if err := store.PeekInvite(ctx, token); err != nil {
-		t.Fatalf("peek bootstrap: %v", err)
-	}
-
-	first, err := store.AcceptInvite(ctx, token, Identity{
+	first, err := store.Bootstrap(ctx, Identity{
 		Provider: ProviderGitHub,
 		Subject:  "100",
 		Login:    "ada",
 		Name:     "Ada",
+		Emails:   []string{"ada@example.com"},
 	})
 	if err != nil {
-		t.Fatalf("accept bootstrap: %v", err)
+		t.Fatalf("bootstrap: %v", err)
 	}
-	if err := store.PeekInvite(ctx, token); err != ErrInviteUsed {
-		t.Fatalf("consumed invite peek = %v", err)
+	if _, err := store.Bootstrap(ctx, Identity{Provider: ProviderGitHub, Subject: "200", Login: "other", Emails: []string{"other@example.com"}}); err != ErrAdminsExist {
+		t.Fatalf("second bootstrap = %v", err)
 	}
-	if _, err := store.AcceptInvite(ctx, token, Identity{Provider: ProviderGitHub, Subject: "200", Login: "other"}); err != ErrInviteUsed {
-		t.Fatalf("second accept = %v", err)
+	preview, err := store.TakeTokenPreview(ctx, first.ID)
+	if err != nil || preview == "" {
+		t.Fatalf("preview = %q err=%v", preview, err)
 	}
-	if _, _, err := store.RotateBootstrapInvite(ctx); err != ErrAdminsExist {
-		t.Fatalf("rotate after admin = %v", err)
+	if again, err := store.TakeTokenPreview(ctx, first.ID); err != nil || again != "" {
+		t.Fatalf("second preview = %q err=%v", again, err)
+	}
+	loadedToken, err := store.AdminForToken(ctx, preview)
+	if err != nil || loadedToken.ID != first.ID {
+		t.Fatalf("token admin = %+v err=%v", loadedToken, err)
+	}
+	rotated, err := store.RotateToken(ctx, first.ID)
+	if err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	if _, err := store.AdminForToken(ctx, preview); err != ErrNotFound {
+		t.Fatalf("old token = %v", err)
+	}
+	if got, err := store.AdminForToken(ctx, rotated); err != nil || got.ID != first.ID {
+		t.Fatalf("rotated token = %+v err=%v", got, err)
 	}
 	if err := store.Delete(ctx, first.ID); err != ErrLastAdmin {
 		t.Fatalf("delete only admin = %v", err)
@@ -58,11 +66,14 @@ func TestStoreInviteSessionAndLastAdmin(t *testing.T) {
 		t.Fatalf("find = %+v found=%v err=%v", again, found, err)
 	}
 
-	invite, _, err := store.CreateInvite(ctx, first.ID)
+	invite, _, err := store.CreateInvite(ctx, first.ID, "Ada@Example.com")
 	if err != nil {
 		t.Fatalf("create invite: %v", err)
 	}
-	same, err := store.AcceptInvite(ctx, invite, Identity{Provider: ProviderGitHub, Subject: "100", Login: "ada"})
+	if _, err := store.AcceptInvite(ctx, invite, Identity{Provider: ProviderGoogle, Subject: "nope", Login: "nope", Emails: []string{"other@example.com"}}); err != ErrEmailMismatch {
+		t.Fatalf("mismatch = %v", err)
+	}
+	same, err := store.AcceptInvite(ctx, invite, Identity{Provider: ProviderGitHub, Subject: "100", Login: "ada", Emails: []string{"ada@example.com"}})
 	if err != nil {
 		t.Fatalf("existing admin accept: %v", err)
 	}
@@ -73,9 +84,12 @@ func TestStoreInviteSessionAndLastAdmin(t *testing.T) {
 		t.Fatalf("unused invite after existing login: %v", err)
 	}
 
-	second, err := store.AcceptInvite(ctx, invite, Identity{Provider: ProviderGoogle, Subject: "gsub", Login: "ada@example.com", Name: "Ada Lovelace"})
+	second, err := store.AcceptInvite(ctx, invite, Identity{Provider: ProviderGoogle, Subject: "gsub", Login: "ada", Name: "Ada Lovelace", Emails: []string{"ada@example.com"}})
 	if err != nil {
 		t.Fatalf("accept second: %v", err)
+	}
+	if second.Email != "ada@example.com" {
+		t.Fatalf("email = %s", second.Email)
 	}
 	admins, err := store.List(ctx)
 	if err != nil {
@@ -93,7 +107,7 @@ func TestStoreInviteSessionAndLastAdmin(t *testing.T) {
 		t.Fatalf("session expires too soon: %s", expires)
 	}
 	loaded, err := store.AdminForSession(ctx, session)
-	if err != nil || loaded.ID != second.ID || loaded.Login != "ada@example.com" {
+	if err != nil || loaded.ID != second.ID || loaded.Login != "ada" || loaded.Email != "ada@example.com" {
 		t.Fatalf("session admin = %+v err=%v", loaded, err)
 	}
 
@@ -118,7 +132,11 @@ func TestStoreInviteSessionAndLastAdmin(t *testing.T) {
 func TestStoreExpiredInvite(t *testing.T) {
 	store := openAuthStore(t)
 	ctx := context.Background()
-	token, _, err := store.RotateBootstrapInvite(ctx)
+	first, err := store.Bootstrap(ctx, Identity{Provider: ProviderGitHub, Subject: "1", Login: "ada", Emails: []string{"ada@example.com"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := store.CreateInvite(ctx, first.ID, "next@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}

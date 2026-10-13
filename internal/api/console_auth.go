@@ -29,15 +29,17 @@ const (
 
 // ConsoleAuth wires Google and GitHub login for the embedded console.
 type ConsoleAuth struct {
-	Directory auth.Directory
-	PublicURL string
-	Providers map[string]auth.Provider
+	Directory  auth.Directory
+	PublicURL  string
+	Providers  map[string]auth.Provider
+	SendInvite func(ctx context.Context, to, link string) error
 }
 
 func (s *Server) WithConsoleAuth(cfg ConsoleAuth) *Server {
 	s.admins = cfg.Directory
 	s.publicURL = strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/")
 	s.providers = cfg.Providers
+	s.sendInvite = cfg.SendInvite
 	s.secureCookies = strings.HasPrefix(s.publicURL, "https://")
 	return s
 }
@@ -67,6 +69,14 @@ func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
 	if admin, ok := s.currentAdmin(r); ok {
 		body["authenticated"] = true
 		body["admin"] = adminView(admin)
+		preview, err := s.admins.TakeTokenPreview(r.Context(), admin.ID)
+		if err != nil {
+			writeAdminStoreError(w, err)
+			return
+		}
+		if preview != "" {
+			body["api_token"] = preview
+		}
 	}
 	writeJSON(w, http.StatusOK, body)
 }
@@ -103,19 +113,58 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if s.sendInvite == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "Set OM_SMTP_HOST, OM_SMTP_PORT, and OM_SMTP_FROM before inviting an admin.",
+		})
+		return
+	}
 	if !validPublicURL(s.publicURL) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "OM_PUBLIC_URL is not a valid http(s) URL"})
 		return
 	}
-	token, expires, err := s.admins.CreateInvite(r.Context(), admin.ID)
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid email"})
+		return
+	}
+	email, err := auth.NormalizeEmail(req.Email)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid email"})
+		return
+	}
+	token, expires, err := s.admins.CreateInvite(r.Context(), admin.ID, email)
 	if err != nil {
 		writeAdminStoreError(w, err)
 		return
 	}
+	link := s.publicURL + "/invite/" + token
+	if err := s.sendInvite(r.Context(), email, link); err != nil {
+		_ = s.admins.DiscardInvite(r.Context(), token)
+		log.Printf("invite email: %v", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "The invite email could not be sent."})
+		return
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"url":        s.publicURL + "/setup/" + token,
+		"email":      email,
 		"expires_at": expires.UTC().Format(time.RFC3339),
 	})
+}
+
+func (s *Server) handleRotateToken(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	admin, ok := s.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	token, err := s.admins.RotateToken(r.Context(), admin.ID)
+	if err != nil {
+		writeAdminStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 
 func (s *Server) handleDeleteAdmin(w http.ResponseWriter, r *http.Request) {
@@ -206,14 +255,23 @@ func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !found {
-		if payload.Invite == "" {
-			s.redirectAuthError(w, r, "not_admin")
-			return
-		}
-		admin, err = s.admins.AcceptInvite(r.Context(), payload.Invite, identity)
-		if err != nil {
-			s.redirectAuthError(w, r, inviteErrorCode(err))
-			return
+		if payload.Invite != "" {
+			admin, err = s.admins.AcceptInvite(r.Context(), payload.Invite, identity)
+			if err != nil {
+				s.redirectAuthError(w, r, inviteErrorCode(err))
+				return
+			}
+		} else {
+			admin, err = s.admins.Bootstrap(r.Context(), identity)
+			if errors.Is(err, auth.ErrAdminsExist) {
+				s.redirectAuthError(w, r, "not_admin")
+				return
+			}
+			if err != nil {
+				log.Printf("oauth %s bootstrap: %v", name, err)
+				s.redirectAuthError(w, r, inviteErrorCode(err))
+				return
+			}
 		}
 	}
 
@@ -352,6 +410,7 @@ func adminView(admin auth.Admin) map[string]string {
 		"provider": admin.Provider,
 		"login":    admin.Login,
 		"name":     admin.Name,
+		"email":    admin.Email,
 	}
 }
 
@@ -361,6 +420,10 @@ func inviteErrorCode(err error) string {
 		return "invite_used"
 	case errors.Is(err, auth.ErrInviteExpired):
 		return "invite_expired"
+	case errors.Is(err, auth.ErrEmailMismatch):
+		return "email_mismatch"
+	case errors.Is(err, auth.ErrEmailUnverified):
+		return "email_unverified"
 	default:
 		return "invite_invalid"
 	}

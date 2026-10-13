@@ -37,6 +37,7 @@ type oauthProvider struct {
 	config         oauth2.Config
 	userInfoURL    string
 	userInfoAccept string
+	emailsURL      string
 	parse          func([]byte) (Identity, error)
 }
 
@@ -77,7 +78,58 @@ func (p *oauthProvider) Exchange(ctx context.Context, code, redirectURL string) 
 	if resp.StatusCode != http.StatusOK {
 		return Identity{}, fmt.Errorf("%s userinfo status %d", p.name, resp.StatusCode)
 	}
-	return p.parse(body)
+	identity, err := p.parse(body)
+	if err != nil {
+		return Identity{}, err
+	}
+	if p.emailsURL == "" {
+		return identity, nil
+	}
+	emails, err := p.fetchVerifiedEmails(ctx, cfg.Client(ctx, tok))
+	if err != nil {
+		return Identity{}, err
+	}
+	if len(emails) == 0 {
+		return Identity{}, ErrEmailUnverified
+	}
+	identity.Emails = emails
+	return identity.normalized()
+}
+
+func (p *oauthProvider) fetchVerifiedEmails(ctx context.Context, client *http.Client) ([]string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.emailsURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	if p.userInfoAccept != "" {
+		req.Header.Set("Accept", p.userInfoAccept)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s emails status %d", p.name, resp.StatusCode)
+	}
+	var rows []struct {
+		Email    string `json:"email"`
+		Verified bool   `json:"verified"`
+	}
+	if err := json.Unmarshal(body, &rows); err != nil {
+		return nil, err
+	}
+	var emails []string
+	for _, row := range rows {
+		if row.Verified {
+			emails = append(emails, row.Email)
+		}
+	}
+	return emails, nil
 }
 
 func newGoogle(clientID, clientSecret string) *oauthProvider {
@@ -102,9 +154,10 @@ func newGitHub(clientID, clientSecret string) *oauthProvider {
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
 			Endpoint:     github.Endpoint,
-			Scopes:       []string{"read:user"},
+			Scopes:       []string{"read:user", "user:email"},
 		},
 		userInfoURL:    "https://api.github.com/user",
+		emailsURL:      "https://api.github.com/user/emails",
 		userInfoAccept: "application/vnd.github+json",
 		parse:          parseGitHub,
 	}
@@ -131,6 +184,7 @@ func parseGoogle(body []byte) (Identity, error) {
 		Subject:  user.Sub,
 		Login:    user.Email,
 		Name:     user.Name,
+		Emails:   []string{user.Email},
 	}.normalized()
 }
 
