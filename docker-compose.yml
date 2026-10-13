@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Local dev stack: Postgres + API
 # Usage: cp .env.example .env && docker compose up -d
-# The API image compiles aws-sdk-go-v2/service/ec2. Docker needs at least 6 GiB
-# of RAM; 2 GiB kills the compiler (`compile: signal: killed`).
+# The API image compiles aws-sdk-go-v2/service/ec2. Docker needs at least 6 GiB of RAM.
 
 services:
   postgres:
