@@ -15,6 +15,10 @@ type Config struct {
 	PublicURL           string
 	APIPort             int
 	APISecret           string
+	GoogleClientID      string
+	GoogleClientSecret  string
+	GitHubClientID      string
+	GitHubClientSecret  string
 	DatabaseURL         string
 	AWSRegion           string
 	AzureSubscriptionID string
@@ -54,6 +58,10 @@ func Load() Config {
 		PublicURL:           getEnv("OM_PUBLIC_URL", "http://localhost:8080"),
 		APIPort:             port,
 		APISecret:           getEnv("OM_API_SECRET", "change-me-in-production"),
+		GoogleClientID:      getEnv("OM_GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret:  getEnv("OM_GOOGLE_CLIENT_SECRET", ""),
+		GitHubClientID:      getEnv("OM_GITHUB_CLIENT_ID", ""),
+		GitHubClientSecret:  getEnv("OM_GITHUB_CLIENT_SECRET", ""),
 		DatabaseURL:         databaseURL,
 		AWSRegion:           getEnv("AWS_REGION", "us-east-1"),
 		AzureSubscriptionID: getEnv("AZURE_SUBSCRIPTION_ID", ""),

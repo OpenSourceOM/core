@@ -161,4 +161,27 @@ assert_present "$workdir/k8s-kube.yaml" "automountServiceAccountToken: false" "k
 assert_absent "$workdir/k8s-kube.yaml" "kind: ClusterRole$" "kubeconfig scan created in-cluster RBAC"
 assert_absent "$workdir/k8s-kube.yaml" "- demo" "kubernetes scan scheduled the demo scan"
 
+assert_absent "$workdir/default.yaml" "OM_GOOGLE_CLIENT" "default install set Google login"
+assert_absent "$workdir/default.yaml" "OM_GITHUB_CLIENT" "default install set GitHub login"
+
+if helm template om "$chart" "${base[@]}" --set api.google.clientId=google-client >/dev/null 2>"$workdir/google-missing.err"; then
+  echo "google client id without a secret rendered" >&2
+  exit 1
+fi
+
+render google-login \
+  --set api.publicURL=https://om.example.com \
+  --set api.google.clientId=google-client \
+  --set api.google.clientSecret=google-secret
+helm template om "$chart" "${base[@]}" \
+  --set api.publicURL=https://om.example.com \
+  --set api.google.clientId=google-client \
+  --set api.google.clientSecret=google-secret \
+  --show-only templates/api.yaml >"$workdir/google-api.yaml"
+assert_present "$workdir/google-api.yaml" "OM_PUBLIC_URL" "public URL was not set"
+assert_present "$workdir/google-api.yaml" "https://om.example.com" "public URL value was dropped"
+assert_present "$workdir/google-api.yaml" "google-client" "Google client id was not set"
+assert_absent "$workdir/google-api.yaml" "google-secret" "Google client secret was copied into the Deployment"
+assert_present "$workdir/google-login.yaml" "OM_GOOGLE_CLIENT_SECRET" "Google client secret was not stored"
+
 echo "helm render checks passed"

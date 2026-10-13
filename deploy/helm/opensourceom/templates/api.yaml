@@ -53,6 +53,28 @@ spec:
                 secretKeyRef:
                   name: {{ include "opensourceom.fullname" . }}
                   key: OM_API_SECRET
+            {{- with .Values.api.publicURL }}
+            - name: OM_PUBLIC_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.api.google.clientId }}
+            - name: OM_GOOGLE_CLIENT_ID
+              value: {{ .Values.api.google.clientId | quote }}
+            - name: OM_GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "opensourceom.fullname" . }}
+                  key: OM_GOOGLE_CLIENT_SECRET
+            {{- end }}
+            {{- if .Values.api.github.clientId }}
+            - name: OM_GITHUB_CLIENT_ID
+              value: {{ .Values.api.github.clientId | quote }}
+            - name: OM_GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "opensourceom.fullname" . }}
+                  key: OM_GITHUB_CLIENT_SECRET
+            {{- end }}
             {{- include "opensourceom.dbEnv" . | nindent 12 }}
           readinessProbe:
             httpGet:

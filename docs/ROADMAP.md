@@ -71,9 +71,12 @@ The free OSS core focuses on **defending against external attackers** — unders
 | Attack path queries (internet → workload → datastore) | Insider / internal-threat analysis |
 | Graph-context CSPM and CVE prioritization | Privileged access governance and blast-radius controls for operators |
 | Multi-cloud + Kubernetes inventory | Multi-tenant RBAC, org/account scoping |
-| Self-hosted API, CLI, and web console | SAML / SSO and enterprise identity integrations |
+| Self-hosted API, CLI, and web console | SAML and custom enterprise identity providers |
+| Console admins via Google or GitHub login | Viewer and other non-admin roles |
 | Community collectors and rule packs | Enterprise compliance workflows |
 | Cloud audit ingest as graph context | Immutable platform audit logs (who used OpenSourceOM) |
+
+Console login in the OSS core is Google or GitHub only. Every signed-in account is an admin. The shared `OM_API_SECRET` remains the credential for collectors and other machine clients. Bring-your-own identity providers stay commercial.
 
 Cloud provider audit APIs (for example CloudTrail) are Phase 3 graph context ([#33](https://github.com/OpenSourceOM/core/issues/33)): evidence of exposure and attack paths. **Platform audit logs** — operator actions in the console/API, SSO identity, retention, and auditor export — belong in the commercial offering.
 

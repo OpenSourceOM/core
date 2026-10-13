@@ -122,7 +122,9 @@ open http://localhost:8080
 
 The API image compiles `github.com/aws/aws-sdk-go-v2/service/ec2`. Give Docker at least 6 GiB of RAM.
 
-`.env.example` sets `OM_API_SECRET=change-me-in-production`, and Compose passes that into the API. In the console, paste that value into the API key field and click **Save API key**. The console then sends it as `X-API-Key` on every `/v1` call except health. Leave the secret empty to keep local API calls open.
+`.env.example` sets `OM_API_SECRET=change-me-in-production`, and Compose passes that into the API. Collectors, CI, and `curl` send it as `Authorization: Bearer` or `X-API-Key` on every `/v1` call except health. Leave the secret empty to keep those calls open.
+
+The console does not use that secret. People sign in with Google or GitHub. Set `OM_GOOGLE_CLIENT_ID` and `OM_GOOGLE_CLIENT_SECRET`, or the `OM_GITHUB_*` pair, and register the callback `{OM_PUBLIC_URL}/auth/google/callback` or `{OM_PUBLIC_URL}/auth/github/callback`. On an install with no admin, the API log prints a one-time setup link. The first account to finish that link becomes the admin and can create more setup links. Every console account is an admin.
 
 **API endpoints:** `GET /v1/health`, `POST /v1/ingest`, `GET /v1/findings`, `GET /v1/graph/snapshot`, `POST /v1/rules/run`, `GET /v1/identity/blast-radius`
 

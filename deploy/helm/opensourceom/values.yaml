@@ -15,6 +15,14 @@ service:
 api:
   env: production
   secret: ""
+  # Browser origin for OAuth callbacks and the setup link. No trailing path.
+  publicURL: ""
+  google:
+    clientId: ""
+    clientSecret: ""
+  github:
+    clientId: ""
+    clientSecret: ""
 
 postgres:
   enabled: true

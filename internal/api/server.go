@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,17 +15,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OpenSourceOM/core/internal/auth"
 	"github.com/OpenSourceOM/core/internal/export"
 	"github.com/OpenSourceOM/core/internal/graph"
 	"github.com/OpenSourceOM/core/internal/rules"
 )
 
 type Server struct {
-	store     *graph.Store
-	health    healthChecker
-	querier   *graph.Querier
-	rules     *rules.Engine
-	apiSecret string
+	store         *graph.Store
+	health        healthChecker
+	querier       *graph.Querier
+	rules         *rules.Engine
+	apiSecret     string
+	admins        auth.Directory
+	publicURL     string
+	providers     map[string]auth.Provider
+	secureCookies bool
 }
 
 type healthChecker interface {
@@ -56,18 +62,27 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/rules/run", s.handleRulesRun)
 	mux.HandleFunc("GET /v1/identity/blast-radius", s.handleBlastRadius)
 	mux.HandleFunc("POST /v1/export/slack", s.handleExportSlack)
+	mux.HandleFunc("GET /v1/auth/session", s.handleAuthSession)
+	mux.HandleFunc("POST /v1/auth/logout", s.handleLogout)
+	mux.HandleFunc("GET /v1/admins", s.handleListAdmins)
+	mux.HandleFunc("POST /v1/admins/invites", s.handleCreateInvite)
+	mux.HandleFunc("DELETE /v1/admins/{id}", s.handleDeleteAdmin)
+	mux.HandleFunc("GET /auth/{provider}/start", s.handleAuthStart)
+	mux.HandleFunc("GET /auth/{provider}/callback", s.handleAuthCallback)
+	mux.HandleFunc("GET /login", handleConsolePage)
+	mux.HandleFunc("GET /setup/{token}", handleConsolePage)
 	mux.Handle("/", uiHandler())
 	mux.Handle("/ui/", http.StripPrefix("/ui/", uiHandler()))
 	return s.requireAPIAuth(mux)
 }
 
-// requireAPIAuth demands the shared secret on every /v1 route except
-// GET /v1/health. The console and other non-API paths stay open so the
-// page can load; it sends the key from localStorage on API calls.
-// An empty secret leaves the API open for local development.
+// requireAPIAuth demands the shared API secret or a console session on every
+// /v1 route except health, the session probe, and logout. The HTML stays
+// open so the login page can load. An empty secret leaves graph routes open
+// for local development. Admin management still requires a session.
 func (s *Server) requireAPIAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet && r.URL.Path == "/v1/health" {
+		if publicV1(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -328,11 +343,26 @@ func (s *Server) authorize(r *http.Request) bool {
 	if s.apiSecret == "" {
 		return true
 	}
-	authHeader := r.Header.Get("Authorization")
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		return strings.TrimPrefix(authHeader, "Bearer ") == s.apiSecret
+	if secretMatch(presentedSecret(r), s.apiSecret) {
+		return true
 	}
-	return r.Header.Get("X-API-Key") == s.apiSecret
+	_, ok := s.currentAdmin(r)
+	return ok
+}
+
+func presentedSecret(r *http.Request) string {
+	header := r.Header.Get("Authorization")
+	if strings.HasPrefix(header, "Bearer ") {
+		return strings.TrimPrefix(header, "Bearer ")
+	}
+	return r.Header.Get("X-API-Key")
+}
+
+func secretMatch(got, want string) bool {
+	if got == "" || len(got) != len(want) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

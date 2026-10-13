@@ -39,7 +39,7 @@ SPDX-License-Identifier: Apache-2.0
 | **CSPM rules** | `internal/rules/` | Built-in policies, embedded YAML packs, and attack-path findings |
 | **CVE enrichment** | `internal/enrichment/` | Match workload packages and images, then NVD or a catalog for CVSS |
 | **Exports** | `internal/export/` | SIEM JSONL, Slack webhooks, Jira issues |
-| **API** | `internal/api/` | REST + embedded console at `/`; shared API secret on `/v1` except health |
+| **API** | `internal/api/` | REST + embedded console at `/`; API secret or console session on `/v1` except health |
 | **CLI** | `cmd/om/`, `internal/cmd/` | `migrate`, `serve`, `scan`, `rules`, `identity`, `export`, … |
 | **Helm** | `deploy/helm/opensourceom/` | API, optional Postgres, optional scheduled collectors |
 
@@ -51,7 +51,7 @@ SPDX-License-Identifier: Apache-2.0
 
 Findings link to affected resources via `VIOLATES` edges. CSPM and CVE findings share the same `Finding` node type but use `finding_type` and `rule_id` / `cve_id` properties for provenance.
 
-See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings-ui.md), [ADR 003](./adr/003-phase2-cspm-rbac.md), and [ADR 004](./adr/004-collector-plugin-sdk.md).
+See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings-ui.md), [ADR 003](./adr/003-phase2-cspm-rbac.md), [ADR 004](./adr/004-collector-plugin-sdk.md), and [ADR 005](./adr/005-console-admins.md).
 
 ## Technology choices
 
@@ -60,7 +60,7 @@ See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings
 | Collectors | Go (AWS/Azure/GCP/K8s SDKs) plus out-of-process plugins | Shipped |
 | Graph store | PostgreSQL | Shipped |
 | CSPM rules | Go rule engine + graph context | Shipped |
-| API | REST (`net/http`) + shared API secret | Shipped |
+| API | REST (`net/http`) + API secret and Google/GitHub console login | Shipped |
 | UI | Embedded static HTML/JS (vis-network) | Shipped |
 | Exports | Webhooks + JSONL + Jira REST | Shipped |
 | Prod deployment | Kubernetes Helm chart | Shipped |

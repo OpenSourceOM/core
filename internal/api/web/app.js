@@ -11,6 +11,20 @@ const nodeColors = {
 let network = null;
 let graphData = { nodes: [], edges: [] };
 let lastGraphNodes = [];
+let currentAdmin = null;
+
+const providerLabels = { google: "Google", github: "GitHub" };
+const authErrors = {
+  invite_invalid: "This setup link is not valid. Use the latest link from the API logs, or ask an admin for a new one.",
+  invite_used: "This setup link was already used.",
+  invite_expired: "This setup link has expired.",
+  not_admin: "This Google or GitHub account is not an admin. Ask an admin for a setup link.",
+  email_unverified: "Google has not verified this email address.",
+  oauth_denied: "The sign-in was canceled.",
+  oauth_state: "The sign-in session expired. Try again.",
+  oauth_failed: "Sign-in failed. Try again.",
+  provider_unconfigured: "That sign-in provider is not configured on this server.",
+};
 
 async function showBlastRadius(identityID, name) {
   const panel = document.getElementById("blast-radius");
@@ -30,47 +44,34 @@ async function runRules() {
   btn.disabled = true;
   btn.textContent = "Running rules…";
   try {
-    const res = await fetch("/v1/rules/run", { method: "POST", headers: apiHeaders() });
-    if (!res.ok) throw new Error(`rules run returned ${res.status}`);
+    await fetchJSON("/v1/rules/run", { method: "POST" });
     await refresh();
   } catch (err) {
-    alert(`CSPM rules require the API secret: ${err.message}`);
+    showConsoleError(err);
   } finally {
     btn.disabled = false;
     btn.textContent = "Run CSPM rules";
   }
 }
 
-function loadAPIKey() {
-  const input = document.getElementById("api-key");
-  input.value = localStorage.getItem("om_api_key") || "";
-}
-
-async function saveAPIKey() {
-  const input = document.getElementById("api-key");
-  const key = input.value.trim();
-
-  if (key) {
-    localStorage.setItem("om_api_key", key);
-  } else {
-    localStorage.removeItem("om_api_key");
+async function readError(res) {
+  try {
+    const body = await res.json();
+    if (body && body.error) return body.error;
+  } catch (err) {
+    return `request returned ${res.status}`;
   }
-  await loadConsole();
+  return `request returned ${res.status}`;
 }
 
-function apiHeaders() {
-  const key = localStorage.getItem("om_api_key");
-  if (!key) return {};
-  return { "X-API-Key": key };
-}
-
-async function fetchJSON(path) {
-  const res = await fetch(path, { headers: apiHeaders() });
+async function fetchJSON(path, options) {
+  const res = await fetch(path, options);
   if (!res.ok) {
-    const error = new Error(`${path} returned ${res.status}`);
+    const error = new Error(await readError(res));
     error.status = res.status;
     throw error;
   }
+  if (res.status === 204) return null;
   return res.json();
 }
 
@@ -78,28 +79,173 @@ function isUnauthorized(err) {
   return err && err.status === 401;
 }
 
-function consoleLoadError(err) {
-  if (!isUnauthorized(err)) {
-    return `Failed to load console: ${err.message}`;
-  }
-  if (!localStorage.getItem("om_api_key")) {
-    return "The server refused to load the graph because no API key is saved. Paste the OM_API_SECRET value into the API key field and click Save API key.";
-  }
-  return "The server refused the saved API key. Paste the OM_API_SECRET value into the API key field and click Save API key.";
-}
-
 function showConsoleError(err) {
+  if (isUnauthorized(err)) {
+    fetchJSON("/v1/auth/session").then((session) => {
+      renderGate(session);
+      document.getElementById("gate-message").textContent = "Your session ended. Sign in again.";
+    }).catch(() => {
+      showSignedOut("Your session ended. Sign in again.");
+    });
+    return;
+  }
   const banner = document.getElementById("console-error");
-  banner.textContent = consoleLoadError(err);
+  banner.textContent = `Failed to load console: ${err.message}`;
   banner.classList.remove("hidden");
-  document.getElementById("api-key").classList.toggle("needs-key", isUnauthorized(err));
 }
 
 function clearConsoleError() {
   const banner = document.getElementById("console-error");
   banner.textContent = "";
   banner.classList.add("hidden");
-  document.getElementById("api-key").classList.remove("needs-key");
+}
+
+function setupToken() {
+  const match = window.location.pathname.match(/^\/setup\/([^/]+)$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function adminLabel(admin) {
+  const who = admin.login || admin.name || "Admin";
+  const via = providerLabels[admin.provider] || admin.provider;
+  return `${who} · ${via}`;
+}
+
+function showSignedOut(message) {
+  currentAdmin = null;
+  document.getElementById("console").classList.add("hidden");
+  document.getElementById("stats").classList.add("hidden");
+  document.getElementById("account").classList.add("hidden");
+  document.getElementById("admins-panel").classList.add("hidden");
+  const gate = document.getElementById("gate");
+  gate.classList.remove("hidden");
+  document.getElementById("gate-title").textContent = "Sign in";
+  document.getElementById("gate-message").textContent = message;
+  document.getElementById("gate-actions").replaceChildren();
+}
+
+function renderGate(session) {
+  const token = setupToken();
+  const params = new URLSearchParams(window.location.search);
+  const errorCode = params.get("error");
+  const providers = session.providers || [];
+  const gate = document.getElementById("gate");
+  gate.classList.remove("hidden");
+  document.getElementById("console").classList.add("hidden");
+  document.getElementById("stats").classList.add("hidden");
+  document.getElementById("account").classList.add("hidden");
+
+  let title = "Sign in";
+  let message = "Use the Google or GitHub account an admin already approved.";
+  if (!session.login_enabled) {
+    title = "Console login is not available";
+    message = "The API process does not have an admin store.";
+  } else if (providers.length === 0) {
+    title = "Sign-in is not configured";
+    message = "Set OM_GOOGLE_CLIENT_ID and OM_GOOGLE_CLIENT_SECRET, or OM_GITHUB_CLIENT_ID and OM_GITHUB_CLIENT_SECRET, then restart the API.";
+  } else if (session.needs_setup && token) {
+    title = "Create the admin account";
+    message = "The first Google or GitHub account to finish this setup link becomes the admin.";
+  } else if (session.needs_setup) {
+    title = "Setup required";
+    message = "No admin exists yet. Open the setup link printed in the API logs.";
+  }
+
+  if (errorCode && authErrors[errorCode]) {
+    message = authErrors[errorCode];
+  }
+  document.getElementById("gate-title").textContent = title;
+  document.getElementById("gate-message").textContent = message;
+
+  const actions = document.getElementById("gate-actions");
+  actions.replaceChildren();
+  const canStart = providers.length > 0 && (token || !session.needs_setup) && session.login_enabled;
+  if (!canStart) return;
+  providers.forEach((provider) => {
+    const link = document.createElement("a");
+    link.className = "button";
+    const dest = new URL(`/auth/${provider}/start`, window.location.origin);
+    if (token) dest.searchParams.set("invite", token);
+    link.href = dest.pathname + dest.search;
+    link.textContent = `Sign in with ${providerLabels[provider] || provider}`;
+    actions.appendChild(link);
+  });
+}
+
+function showConsole(session) {
+  currentAdmin = session.admin;
+  document.getElementById("gate").classList.add("hidden");
+  document.getElementById("console").classList.remove("hidden");
+  document.getElementById("stats").classList.remove("hidden");
+  const account = document.getElementById("account");
+  account.classList.remove("hidden");
+  document.getElementById("account-label").textContent = adminLabel(session.admin);
+  if (window.location.pathname !== "/") {
+    window.history.replaceState({}, "", "/");
+  }
+}
+
+async function renderAdmins() {
+  const panel = document.getElementById("admins-panel");
+  panel.classList.remove("hidden");
+  const data = await fetchJSON("/v1/admins");
+  panel.replaceChildren();
+  const heading = document.createElement("h2");
+  heading.textContent = "Admins";
+  panel.appendChild(heading);
+  const intro = document.createElement("p");
+  intro.className = "meta";
+  intro.textContent = "Every admin can run the console. Send a setup link to add another one. It expires in 72 hours.";
+  panel.appendChild(intro);
+
+  const list = document.createElement("ul");
+  (data.admins || []).forEach((admin) => {
+    const row = document.createElement("li");
+    row.className = "admin-row";
+    const label = document.createElement("span");
+    label.textContent = adminLabel(admin);
+    row.appendChild(label);
+    if ((data.admins || []).length > 1) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", () => removeAdmin(admin.id));
+      row.appendChild(remove);
+    }
+    list.appendChild(row);
+  });
+  panel.appendChild(list);
+
+  const create = document.createElement("button");
+  create.type = "button";
+  create.textContent = "Create setup link";
+  create.addEventListener("click", async () => {
+    const created = await fetchJSON("/v1/admins/invites", { method: "POST" });
+    let field = panel.querySelector("input");
+    if (!field) {
+      field = document.createElement("input");
+      field.readOnly = true;
+      field.setAttribute("aria-label", "Setup link");
+      panel.appendChild(field);
+    }
+    field.value = created.url;
+    field.focus();
+    field.select();
+  });
+  panel.appendChild(create);
+}
+
+async function removeAdmin(id) {
+  const res = await fetch(`/v1/admins/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (res.status === 409) {
+    return;
+  }
+  if (!res.ok) throw new Error(await readError(res));
+  if (currentAdmin && currentAdmin.id === id) {
+    window.location.href = "/login";
+    return;
+  }
+  await renderAdmins();
 }
 
 function severityClass(level) {
@@ -364,15 +510,31 @@ document.getElementById("query-select").addEventListener("change", () => {
   refresh().catch(showConsoleError);
 });
 document.getElementById("rules-btn").addEventListener("click", runRules);
-document.getElementById("save-api-key-btn").addEventListener("click", () => {
-  saveAPIKey().catch(showConsoleError);
+document.getElementById("logout-btn").addEventListener("click", async () => {
+  await fetch("/v1/auth/logout", { method: "POST" });
+  window.location.href = "/login";
+});
+document.getElementById("admins-btn").addEventListener("click", () => {
+  const panel = document.getElementById("admins-panel");
+  if (!panel.classList.contains("hidden")) {
+    panel.classList.add("hidden");
+    return;
+  }
+  renderAdmins().catch(showConsoleError);
 });
 
 (async function init() {
-  loadAPIKey();
+  localStorage.removeItem("om_api_key");
   try {
-    await loadConsole();
+    const session = await fetchJSON("/v1/auth/session");
+    if (session.authenticated) {
+      showConsole(session);
+      await loadConsole();
+      return;
+    }
+    renderGate(session);
   } catch (err) {
-    showConsoleError(err);
+    renderGate({ login_enabled: false, providers: [], needs_setup: false });
+    document.getElementById("gate-message").textContent = err.message;
   }
 })();
