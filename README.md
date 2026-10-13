@@ -120,6 +120,8 @@ go build -o example-collector ./examples/collector
 open http://localhost:8080
 ```
 
+The API image compiles `github.com/aws/aws-sdk-go-v2/service/ec2`. Give Docker at least 6 GiB of RAM.
+
 `.env.example` sets `OM_API_SECRET=change-me-in-production`, and Compose passes that into the API. In the console, paste that value into the API key field and click **Save API key**. The console then sends it as `X-API-Key` on every `/v1` call except health. Leave the secret empty to keep local API calls open.
 
 **API endpoints:** `GET /v1/health`, `POST /v1/ingest`, `GET /v1/findings`, `GET /v1/graph/snapshot`, `POST /v1/rules/run`, `GET /v1/identity/blast-radius`
