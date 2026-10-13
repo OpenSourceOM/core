@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type fakeHealthChecker struct {
@@ -125,6 +128,51 @@ func TestAPISecretUnsetLeavesRoutesOpen(t *testing.T) {
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+}
+
+func TestWriteStoreErrorSchemaNotReady(t *testing.T) {
+	err := fmt.Errorf("count nodes: %w", &pgconn.PgError{
+		Code:    "42P01",
+		Message: `relation "nodes" does not exist`,
+	})
+	recorder := httptest.NewRecorder()
+	writeStoreError(recorder, err)
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusServiceUnavailable)
+	}
+	var body map[string]string
+	if decodeErr := json.NewDecoder(recorder.Body).Decode(&body); decodeErr != nil {
+		t.Fatalf("decode response: %v", decodeErr)
+	}
+	if body["code"] != schemaNotReadyCode {
+		t.Fatalf("code = %q, want %q", body["code"], schemaNotReadyCode)
+	}
+	if body["error"] != schemaNotReadyMessage {
+		t.Fatalf("error = %q, want %q", body["error"], schemaNotReadyMessage)
+	}
+	if strings.Contains(body["error"], "SQLSTATE") || strings.Contains(body["error"], "relation") {
+		t.Fatalf("schema error leaked database details: %q", body["error"])
+	}
+}
+
+func TestWriteStoreErrorKeepsOtherFailures(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writeStoreError(recorder, errors.New("connection reset"))
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusInternalServerError)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["error"] != "connection reset" {
+		t.Fatalf("error = %q", body["error"])
+	}
+	if _, ok := body["code"]; ok {
+		t.Fatal("unrelated store errors must not use the schema-not-ready code")
 	}
 }
 
