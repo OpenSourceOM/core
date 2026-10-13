@@ -14,9 +14,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/OpenSourceOM/core/internal/export"
 	"github.com/OpenSourceOM/core/internal/graph"
 	"github.com/OpenSourceOM/core/internal/rules"
+)
+
+const (
+	schemaNotReadyCode    = "schema_not_ready"
+	schemaNotReadyMessage = "The graph database has not been initialized. Run om migrate, then refresh this page."
 )
 
 type Server struct {
@@ -112,7 +119,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.UpsertBatch(r.Context(), batch); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeStoreError(w, err)
 		return
 	}
 
@@ -125,7 +132,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := s.store.Stats(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, stats)
@@ -166,7 +173,7 @@ func (s *Server) handleRulesRun(w http.ResponseWriter, r *http.Request) {
 		result, err = s.rules.Run(r.Context(), ruleID)
 	}
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeFailure(w, err, http.StatusBadRequest)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -182,14 +189,14 @@ func (s *Server) handleBlastRadius(w http.ResponseWriter, r *http.Request) {
 		}
 		node, err := s.store.FindIdentityByName(r.Context(), name)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			writeFailure(w, err, http.StatusBadRequest)
 			return
 		}
 		identityID = node.ID
 	}
 	result, err := s.store.BlastRadius(r.Context(), identityID, 6)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeFailure(w, err, http.StatusBadRequest)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -204,7 +211,7 @@ func (s *Server) handleExportSlack(w http.ResponseWriter, r *http.Request) {
 
 	records, err := export.LoadFindingRecords(r.Context(), s.store)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeStoreError(w, err)
 		return
 	}
 
@@ -302,11 +309,33 @@ func parsePageLimit(raw string, fallback, max int) (int, error) {
 }
 
 func writeListError(w http.ResponseWriter, err error) {
-	status := http.StatusInternalServerError
 	if errors.Is(err, graph.ErrInvalidCursor) {
-		status = http.StatusBadRequest
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeStoreError(w, err)
+}
+
+func writeStoreError(w http.ResponseWriter, err error) {
+	writeFailure(w, err, http.StatusInternalServerError)
+}
+
+func writeFailure(w http.ResponseWriter, err error, status int) {
+	if isSchemaNotReady(err) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": schemaNotReadyMessage,
+			"code":  schemaNotReadyCode,
+		})
+		return
 	}
 	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
+
+// isSchemaNotReady reports a missing graph table, which is what Postgres
+// returns when om migrate has not been applied.
+func isSchemaNotReady(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "42P01"
 }
 
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
@@ -318,7 +347,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	result, err := s.querier.Run(r.Context(), name)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeFailure(w, err, http.StatusBadRequest)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)

@@ -31,9 +31,13 @@ async function runRules() {
   btn.textContent = "Running rules…";
   try {
     const res = await fetch("/v1/rules/run", { method: "POST", headers: apiHeaders() });
-    if (!res.ok) throw new Error(`rules run returned ${res.status}`);
+    if (!res.ok) throw await errorFromResponse(res, "/v1/rules/run");
     await refresh();
   } catch (err) {
+    if (err.schemaNotReady) {
+      showConsoleError(err);
+      return;
+    }
     alert(`CSPM rules require the API secret: ${err.message}`);
   } finally {
     btn.disabled = false;
@@ -64,13 +68,25 @@ function apiHeaders() {
   return { "X-API-Key": key };
 }
 
+async function errorFromResponse(res, path) {
+  let body = null;
+  try {
+    body = await res.json();
+  } catch (err) {
+    body = null;
+  }
+  const error = new Error(`${path} returned ${res.status}`);
+  error.status = res.status;
+  if (body && body.code === "schema_not_ready" && body.error) {
+    error.schemaNotReady = true;
+    error.message = body.error;
+  }
+  return error;
+}
+
 async function fetchJSON(path) {
   const res = await fetch(path, { headers: apiHeaders() });
-  if (!res.ok) {
-    const error = new Error(`${path} returned ${res.status}`);
-    error.status = res.status;
-    throw error;
-  }
+  if (!res.ok) throw await errorFromResponse(res, path);
   return res.json();
 }
 
@@ -79,6 +95,9 @@ function isUnauthorized(err) {
 }
 
 function consoleLoadError(err) {
+  if (err && err.schemaNotReady) {
+    return err.message;
+  }
   if (!isUnauthorized(err)) {
     return `Failed to load console: ${err.message}`;
   }
