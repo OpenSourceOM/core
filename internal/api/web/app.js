@@ -46,7 +46,7 @@ function loadAPIKey() {
   input.value = localStorage.getItem("om_api_key") || "";
 }
 
-function saveAPIKey() {
+async function saveAPIKey() {
   const input = document.getElementById("api-key");
   const key = input.value.trim();
 
@@ -55,6 +55,7 @@ function saveAPIKey() {
   } else {
     localStorage.removeItem("om_api_key");
   }
+  await loadConsole();
 }
 
 function apiHeaders() {
@@ -65,8 +66,40 @@ function apiHeaders() {
 
 async function fetchJSON(path) {
   const res = await fetch(path, { headers: apiHeaders() });
-  if (!res.ok) throw new Error(`${path} returned ${res.status}`);
+  if (!res.ok) {
+    const error = new Error(`${path} returned ${res.status}`);
+    error.status = res.status;
+    throw error;
+  }
   return res.json();
+}
+
+function isUnauthorized(err) {
+  return err && err.status === 401;
+}
+
+function consoleLoadError(err) {
+  if (!isUnauthorized(err)) {
+    return `Failed to load console: ${err.message}`;
+  }
+  if (!localStorage.getItem("om_api_key")) {
+    return "The server refused to load the graph because no API key is saved. Paste the OM_API_SECRET value into the API key field and click Save API key.";
+  }
+  return "The server refused the saved API key. Paste the OM_API_SECRET value into the API key field and click Save API key.";
+}
+
+function showConsoleError(err) {
+  const banner = document.getElementById("console-error");
+  banner.textContent = consoleLoadError(err);
+  banner.classList.remove("hidden");
+  document.getElementById("api-key").classList.toggle("needs-key", isUnauthorized(err));
+}
+
+function clearConsoleError() {
+  const banner = document.getElementById("console-error");
+  banner.textContent = "";
+  banner.classList.add("hidden");
+  document.getElementById("api-key").classList.remove("needs-key");
 }
 
 function severityClass(level) {
@@ -174,15 +207,30 @@ function highlightNode(nodeID) {
 async function loadQueries() {
   const data = await fetchJSON("/v1/graph/queries");
   const select = document.getElementById("query-select");
+  const previous = select.value;
+  const keepSelection = select.dataset.loaded === "1";
+  select.replaceChildren();
+  const full = document.createElement("option");
+  full.value = "";
+  full.textContent = "Full graph snapshot";
+  select.appendChild(full);
   data.queries.forEach((entry) => {
     const opt = document.createElement("option");
     opt.value = entry.name;
     opt.textContent = `${entry.name} — ${entry.description}`;
     select.appendChild(opt);
   });
-  if ([...select.options].some((opt) => opt.value === "internet-to-datastore")) {
-    select.value = "internet-to-datastore";
+  const preferred = keepSelection ? previous : "internet-to-datastore";
+  if ([...select.options].some((opt) => opt.value === preferred)) {
+    select.value = preferred;
   }
+  select.dataset.loaded = "1";
+}
+
+async function loadConsole() {
+  clearConsoleError();
+  await loadQueries();
+  await refresh();
 }
 
 function findEdge(edges, sourceID, targetID) {
@@ -309,17 +357,22 @@ async function refresh() {
   renderGraph(snapshot.nodes, snapshot.edges);
 }
 
-document.getElementById("refresh-btn").addEventListener("click", refresh);
-document.getElementById("query-select").addEventListener("change", refresh);
+document.getElementById("refresh-btn").addEventListener("click", () => {
+  loadConsole().catch(showConsoleError);
+});
+document.getElementById("query-select").addEventListener("change", () => {
+  refresh().catch(showConsoleError);
+});
 document.getElementById("rules-btn").addEventListener("click", runRules);
-document.getElementById("save-api-key-btn").addEventListener("click", saveAPIKey);
+document.getElementById("save-api-key-btn").addEventListener("click", () => {
+  saveAPIKey().catch(showConsoleError);
+});
 
 (async function init() {
   loadAPIKey();
   try {
-    await loadQueries();
-    await refresh();
+    await loadConsole();
   } catch (err) {
-    document.body.insertAdjacentHTML("beforeend", `<p style="padding:1rem;color:#ff8787;">Failed to load console: ${err.message}</p>`);
+    showConsoleError(err);
   }
 })();
