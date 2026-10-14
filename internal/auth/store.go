@@ -43,7 +43,7 @@ func (s *Store) Count(ctx context.Context) (int, error) {
 
 func (s *Store) List(ctx context.Context) ([]Admin, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id::text, provider, subject, login, display_name, email, created_at
+		SELECT id::text, provider, subject, login, display_name, email, must_change_password, totp_enabled, created_at
 		FROM admins
 		ORDER BY created_at ASC, id ASC
 	`)
@@ -137,11 +137,11 @@ func (s *Store) AdminForSession(ctx context.Context, sessionID string) (Admin, e
 	var admin Admin
 	var expires time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT a.id::text, a.provider, a.subject, a.login, a.display_name, a.email, a.created_at, s.expires_at
+		SELECT a.id::text, a.provider, a.subject, a.login, a.display_name, a.email, a.must_change_password, a.totp_enabled, a.created_at, s.expires_at
 		FROM admin_sessions s
 		JOIN admins a ON a.id = s.admin_id
 		WHERE s.id = $1
-	`, HashToken(sessionID)).Scan(&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.CreatedAt, &expires)
+	`, HashToken(sessionID)).Scan(&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.MustChangePassword, &admin.TOTPEnabled, &admin.CreatedAt, &expires)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Admin{}, ErrNotFound
 	}
@@ -241,10 +241,10 @@ func (s *Store) AdminForToken(ctx context.Context, token string) (Admin, error) 
 	}
 	var admin Admin
 	err := s.pool.QueryRow(ctx, `
-		SELECT id::text, provider, subject, login, display_name, email, created_at
+		SELECT id::text, provider, subject, login, display_name, email, must_change_password, totp_enabled, created_at
 		FROM admins
 		WHERE api_token_hash = $1
-	`, HashToken(token)).Scan(&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.CreatedAt)
+	`, HashToken(token)).Scan(&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.MustChangePassword, &admin.TOTPEnabled, &admin.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Admin{}, ErrNotFound
 	}
@@ -437,10 +437,10 @@ type querier interface {
 func findAdmin(ctx context.Context, q querier, provider, subject string) (Admin, bool, error) {
 	var admin Admin
 	err := q.QueryRow(ctx, `
-		SELECT id::text, provider, subject, login, display_name, email, created_at
+		SELECT id::text, provider, subject, login, display_name, email, must_change_password, totp_enabled, created_at
 		FROM admins
 		WHERE provider = $1 AND subject = $2
-	`, provider, subject).Scan(&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.CreatedAt)
+	`, provider, subject).Scan(&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.MustChangePassword, &admin.TOTPEnabled, &admin.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Admin{}, false, nil
 	}
@@ -462,9 +462,9 @@ func insertAdmin(ctx context.Context, q querier, identity Identity, email string
 	err = q.QueryRow(ctx, `
 		INSERT INTO admins (provider, subject, login, display_name, email, api_token_hash, api_token_preview)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id::text, provider, subject, login, display_name, email, created_at
+		RETURNING id::text, provider, subject, login, display_name, email, must_change_password, totp_enabled, created_at
 	`, identity.Provider, identity.Subject, identity.Login, identity.Name, email, HashToken(raw), raw).Scan(
-		&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.CreatedAt,
+		&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.MustChangePassword, &admin.TOTPEnabled, &admin.CreatedAt,
 	)
 	return admin, err
 }
@@ -475,7 +475,7 @@ type scanner interface {
 
 func scanAdmin(row scanner) (Admin, error) {
 	var admin Admin
-	err := row.Scan(&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.CreatedAt)
+	err := row.Scan(&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.MustChangePassword, &admin.TOTPEnabled, &admin.CreatedAt)
 	return admin, err
 }
 

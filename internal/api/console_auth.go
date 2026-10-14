@@ -24,23 +24,29 @@ import (
 const (
 	sessionCookie = "om_session"
 	oauthCookie   = "om_oauth"
+	loginCookie   = "om_login"
 	oauthTTL      = 10 * time.Minute
 )
 
 // ConsoleAuth wires Google and GitHub login for the embedded console.
 type ConsoleAuth struct {
-	Directory  auth.Directory
-	PublicURL  string
-	Providers  map[string]auth.Provider
-	SendInvite func(ctx context.Context, to, link string) error
+	Directory    auth.Directory
+	PublicURL    string
+	Providers    map[string]auth.Provider
+	SetupEmail   string
+	SendPassword func(ctx context.Context, to, password string) error
 }
 
 func (s *Server) WithConsoleAuth(cfg ConsoleAuth) *Server {
 	s.admins = cfg.Directory
 	s.publicURL = strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/")
 	s.providers = cfg.Providers
-	s.sendInvite = cfg.SendInvite
+	s.setupEmail = strings.TrimSpace(cfg.SetupEmail)
+	s.sendPassword = cfg.SendPassword
 	s.secureCookies = strings.HasPrefix(s.publicURL, "https://")
+	if s.loginLimit == nil {
+		s.loginLimit = newLoginLimiter()
+	}
 	return s
 }
 
@@ -66,16 +72,21 @@ func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
 		"needs_setup":   count == 0,
 		"providers":     s.providerNames(),
 	}
+	if count == 0 && s.setupEmail != "" {
+		body["setup_email"] = s.setupEmail
+	}
 	if admin, ok := s.currentAdmin(r); ok {
 		body["authenticated"] = true
 		body["admin"] = adminView(admin)
-		preview, err := s.admins.TakeTokenPreview(r.Context(), admin.ID)
-		if err != nil {
-			writeAdminStoreError(w, err)
-			return
-		}
-		if preview != "" {
-			body["api_token"] = preview
+		if !admin.MustChangePassword {
+			preview, err := s.admins.TakeTokenPreview(r.Context(), admin.ID)
+			if err != nil {
+				writeAdminStoreError(w, err)
+				return
+			}
+			if preview != "" {
+				body["api_token"] = preview
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, body)
@@ -100,33 +111,22 @@ func (s *Server) handleListAdmins(w http.ResponseWriter, r *http.Request) {
 		writeAdminStoreError(w, err)
 		return
 	}
-	views := make([]map[string]string, 0, len(admins))
+	views := make([]map[string]any, 0, len(admins))
 	for _, admin := range admins {
 		views = append(views, adminView(admin))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"admins": views})
 }
 
-func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCreateAdmin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	admin, ok := s.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	if s.sendInvite == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "Set OM_SMTP_HOST, OM_SMTP_PORT, and OM_SMTP_FROM before inviting an admin.",
-		})
-		return
-	}
-	if !validPublicURL(s.publicURL) {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "OM_PUBLIC_URL is not a valid http(s) URL"})
+	if _, ok := s.requireAdmin(w, r); !ok {
 		return
 	}
 	var req struct {
 		Email string `json:"email"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid email"})
 		return
 	}
@@ -135,21 +135,27 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid email"})
 		return
 	}
-	token, expires, err := s.admins.CreateInvite(r.Context(), admin.ID, email)
+	_, password, err := s.admins.ProvisionAdmin(r.Context(), email)
+	if errors.Is(err, auth.ErrEmailTaken) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "An admin with that email already exists."})
+		return
+	}
 	if err != nil {
 		writeAdminStoreError(w, err)
 		return
 	}
-	link := s.publicURL + "/invite/" + token
-	if err := s.sendInvite(r.Context(), email, link); err != nil {
-		_ = s.admins.DiscardInvite(r.Context(), token)
-		log.Printf("invite email: %v", err)
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "The invite email could not be sent."})
-		return
+	emailed := false
+	if s.sendPassword != nil {
+		if err := s.sendPassword(r.Context(), email, password); err != nil {
+			log.Printf("admin password email: %v", err)
+		} else {
+			emailed = true
+		}
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"email":      email,
-		"expires_at": expires.UTC().Format(time.RFC3339),
+		"email":    email,
+		"password": password,
+		"emailed":  emailed,
 	})
 }
 
@@ -196,19 +202,12 @@ func (s *Server) handleAuthStart(w http.ResponseWriter, r *http.Request) {
 		s.redirectAuthError(w, r, "oauth_failed")
 		return
 	}
-	invite := r.URL.Query().Get("invite")
-	if invite != "" {
-		if err := s.admins.PeekInvite(r.Context(), invite); err != nil {
-			s.redirectAuthError(w, r, inviteErrorCode(err))
-			return
-		}
-	}
 	state, err := auth.NewToken()
 	if err != nil {
 		s.redirectAuthError(w, r, "oauth_failed")
 		return
 	}
-	if err := s.setOAuthCookie(w, oauthPayload{State: state, Invite: invite, Provider: name}); err != nil {
+	if err := s.setOAuthCookie(w, oauthPayload{State: state, Provider: name}); err != nil {
 		s.redirectAuthError(w, r, "oauth_failed")
 		return
 	}
@@ -248,31 +247,36 @@ func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	admin, found, err := s.admins.Find(r.Context(), identity.Provider, identity.Subject)
-	if err != nil {
-		log.Printf("oauth %s lookup: %v", name, err)
-		s.redirectAuthError(w, r, "oauth_failed")
+	if len(identity.Emails) == 0 {
+		s.redirectAuthError(w, r, "email_unverified")
 		return
 	}
-	if !found {
-		if payload.Invite != "" {
-			admin, err = s.admins.AcceptInvite(r.Context(), payload.Invite, identity)
-			if err != nil {
-				s.redirectAuthError(w, r, inviteErrorCode(err))
-				return
-			}
-		} else {
-			admin, err = s.admins.Bootstrap(r.Context(), identity)
-			if errors.Is(err, auth.ErrAdminsExist) {
-				s.redirectAuthError(w, r, "not_admin")
-				return
-			}
-			if err != nil {
-				log.Printf("oauth %s bootstrap: %v", name, err)
-				s.redirectAuthError(w, r, inviteErrorCode(err))
-				return
-			}
+	var admin auth.Admin
+	var found bool
+	for _, email := range identity.Emails {
+		admin, found, err = s.admins.FindByEmail(r.Context(), email)
+		if err != nil {
+			log.Printf("oauth %s lookup: %v", name, err)
+			s.redirectAuthError(w, r, "oauth_failed")
+			return
 		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		s.redirectAuthError(w, r, "not_admin")
+		return
+	}
+	if admin.TOTPEnabled {
+		token, err := s.admins.CreateLoginChallenge(r.Context(), admin.ID)
+		if err != nil {
+			s.redirectAuthError(w, r, "oauth_failed")
+			return
+		}
+		s.setLoginCookie(w, token)
+		http.Redirect(w, r, "/login?totp=1", http.StatusFound)
+		return
 	}
 
 	sessionID, expires, err := s.admins.CreateSession(r.Context(), admin.ID)
@@ -404,28 +408,15 @@ func (s *Server) clearCookie(w http.ResponseWriter, name, path string) {
 	})
 }
 
-func adminView(admin auth.Admin) map[string]string {
-	return map[string]string{
-		"id":       admin.ID,
-		"provider": admin.Provider,
-		"login":    admin.Login,
-		"name":     admin.Name,
-		"email":    admin.Email,
-	}
-}
-
-func inviteErrorCode(err error) string {
-	switch {
-	case errors.Is(err, auth.ErrInviteUsed):
-		return "invite_used"
-	case errors.Is(err, auth.ErrInviteExpired):
-		return "invite_expired"
-	case errors.Is(err, auth.ErrEmailMismatch):
-		return "email_mismatch"
-	case errors.Is(err, auth.ErrEmailUnverified):
-		return "email_unverified"
-	default:
-		return "invite_invalid"
+func adminView(admin auth.Admin) map[string]any {
+	return map[string]any{
+		"id":                   admin.ID,
+		"provider":             admin.Provider,
+		"login":                admin.Login,
+		"name":                 admin.Name,
+		"email":                admin.Email,
+		"must_change_password": admin.MustChangePassword,
+		"totp_enabled":         admin.TOTPEnabled,
 	}
 }
 
@@ -466,6 +457,12 @@ func publicV1(r *http.Request) bool {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/auth/session":
 		return true
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/logout":
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/setup":
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/login":
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/totp":
 		return true
 	default:
 		return false

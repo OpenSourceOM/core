@@ -23,6 +23,7 @@ type Config struct {
 	SMTPUsername        string
 	SMTPPassword        string
 	SMTPFrom            string
+	AdminEmail          string
 	DatabaseURL         string
 	AWSRegion           string
 	AzureSubscriptionID string
@@ -71,6 +72,7 @@ func Load() Config {
 		SMTPUsername:        getEnv("OM_SMTP_USERNAME", ""),
 		SMTPPassword:        getEnv("OM_SMTP_PASSWORD", ""),
 		SMTPFrom:            getEnv("OM_SMTP_FROM", ""),
+		AdminEmail:          getEnv("OM_ADMIN_EMAIL", ""),
 		DatabaseURL:         databaseURL,
 		AWSRegion:           getEnv("AWS_REGION", "us-east-1"),
 		AzureSubscriptionID: getEnv("AZURE_SUBSCRIPTION_ID", ""),

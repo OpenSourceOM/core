@@ -122,9 +122,11 @@ open http://localhost:8080
 
 The API image compiles `github.com/aws/aws-sdk-go-v2/service/ec2`. Give Docker at least 6 GiB of RAM.
 
-People sign in with Google or GitHub. Set `OM_GOOGLE_CLIENT_ID` and `OM_GOOGLE_CLIENT_SECRET`, or the `OM_GITHUB_*` pair, and register the callback `{OM_PUBLIC_URL}/auth/google/callback` or `{OM_PUBLIC_URL}/auth/github/callback`. The first successful sign-in becomes the admin. Keep the API port private until that happens. That admin invites the next one by email, which needs `OM_SMTP_HOST`, `OM_SMTP_PORT`, and `OM_SMTP_FROM`. The invited person signs in with the Google or GitHub account for that address. Every console account is an admin.
+The console signs people in with an email and password. While no admin exists, the page asks you to create one. Keep the API port private until you do. Set `OM_ADMIN_EMAIL` when that first address should be fixed in advance. `om admin create --email you@example.com` does the same from the machine before the port is reachable.
 
-Each admin gets a personal API token, shown once in the console. Collectors, CI, and `curl` send it as `Authorization: Bearer` or `X-API-Key` on every `/v1` call except health, the session probe, and logout. The CLI talks to Postgres and does not use the token. A token cannot invite or remove admins.
+An admin adds the next person from the console. That person gets a temporary password, shown once, and chooses their own at the next sign-in. SMTP is optional; when it is set, the temporary password is emailed too. Google and GitHub buttons appear only when those client credentials are set, and the provider email must match an existing admin. Every console account is an admin. Two-factor authentication is optional per admin.
+
+Each admin gets a personal API token, shown once in the console. Collectors, CI, and `curl` send it as `Authorization: Bearer` or `X-API-Key` on every `/v1` call except health, the session probe, and logout. The CLI talks to Postgres and does not use the token. A token cannot add or remove admins.
 
 **API endpoints:** `GET /v1/health`, `POST /v1/ingest`, `GET /v1/findings`, `GET /v1/graph/snapshot`, `POST /v1/rules/run`, `GET /v1/identity/blast-radius`
 

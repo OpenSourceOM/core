@@ -28,7 +28,9 @@ type Server struct {
 	admins        auth.Directory
 	publicURL     string
 	providers     map[string]auth.Provider
-	sendInvite    func(ctx context.Context, to, link string) error
+	setupEmail    string
+	sendPassword  func(ctx context.Context, to, password string) error
+	loginLimit    *loginLimiter
 	secureCookies bool
 }
 
@@ -61,15 +63,21 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/identity/blast-radius", s.handleBlastRadius)
 	mux.HandleFunc("POST /v1/export/slack", s.handleExportSlack)
 	mux.HandleFunc("GET /v1/auth/session", s.handleAuthSession)
+	mux.HandleFunc("POST /v1/auth/setup", s.handleAuthSetup)
+	mux.HandleFunc("POST /v1/auth/login", s.handleAuthLogin)
+	mux.HandleFunc("POST /v1/auth/totp", s.handleAuthTOTP)
+	mux.HandleFunc("POST /v1/auth/password", s.handleChangePassword)
+	mux.HandleFunc("POST /v1/auth/totp/setup", s.handleTOTPSetup)
+	mux.HandleFunc("POST /v1/auth/totp/confirm", s.handleTOTPConfirm)
+	mux.HandleFunc("POST /v1/auth/totp/disable", s.handleTOTPDisable)
 	mux.HandleFunc("POST /v1/auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /v1/admins", s.handleListAdmins)
-	mux.HandleFunc("POST /v1/admins/invites", s.handleCreateInvite)
+	mux.HandleFunc("POST /v1/admins", s.handleCreateAdmin)
 	mux.HandleFunc("POST /v1/admins/token", s.handleRotateToken)
 	mux.HandleFunc("DELETE /v1/admins/{id}", s.handleDeleteAdmin)
 	mux.HandleFunc("GET /auth/{provider}/start", s.handleAuthStart)
 	mux.HandleFunc("GET /auth/{provider}/callback", s.handleAuthCallback)
 	mux.HandleFunc("GET /login", handleConsolePage)
-	mux.HandleFunc("GET /invite/{token}", handleConsolePage)
 	mux.Handle("/", uiHandler())
 	mux.Handle("/ui/", http.StripPrefix("/ui/", uiHandler()))
 	return s.requireAPIAuth(mux)
@@ -84,9 +92,19 @@ func (s *Server) requireAPIAuth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/v1/") && !s.authorize(r) {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-			return
+		if strings.HasPrefix(r.URL.Path, "/v1/") {
+			if admin, ok := s.currentAdmin(r); ok {
+				if admin.MustChangePassword && r.URL.Path != "/v1/auth/password" {
+					writeJSON(w, http.StatusForbidden, map[string]string{"error": "Choose a new password before using the console."})
+					return
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+			if !s.authorize(r) {
+				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -345,8 +363,8 @@ func (s *Server) authorize(r *http.Request) bool {
 	if token == "" || s.admins == nil {
 		return false
 	}
-	_, err := s.admins.AdminForToken(r.Context(), token)
-	return err == nil
+	admin, err := s.admins.AdminForToken(r.Context(), token)
+	return err == nil && !admin.MustChangePassword
 }
 
 func presentedSecret(r *http.Request) string {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/OpenSourceOM/core/internal/api"
 	"github.com/OpenSourceOM/core/internal/auth"
@@ -33,15 +34,13 @@ var serveCmd = &cobra.Command{
 
 		warnOAuthConfig(cfg)
 		providers := auth.ProvidersFromConfig(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GitHubClientID, cfg.GitHubClientSecret)
-		if len(providers) == 0 {
-			log.Printf("console login needs OM_GOOGLE_CLIENT_ID and OM_GOOGLE_CLIENT_SECRET, or OM_GITHUB_CLIENT_ID and OM_GITHUB_CLIENT_SECRET")
-		}
 
 		server := api.NewServer(store).WithConsoleAuth(api.ConsoleAuth{
-			Directory:  admins,
-			PublicURL:  cfg.PublicURL,
-			Providers:  providers,
-			SendInvite: inviteSender(cfg),
+			Directory:    admins,
+			PublicURL:    cfg.PublicURL,
+			Providers:    providers,
+			SetupEmail:   cfg.AdminEmail,
+			SendPassword: passwordSender(cfg),
 		})
 		addr := fmt.Sprintf(":%d", cfg.APIPort)
 		return server.ListenAndServe(addr)
@@ -57,7 +56,7 @@ func warnOAuthConfig(cfg config.Config) {
 	}
 }
 
-func inviteSender(cfg config.Config) func(context.Context, string, string) error {
+func passwordSender(cfg config.Config) func(context.Context, string, string) error {
 	mailer := auth.InviteMailer{
 		Host:     cfg.SMTPHost,
 		Port:     cfg.SMTPPort,
@@ -66,8 +65,13 @@ func inviteSender(cfg config.Config) func(context.Context, string, string) error
 		From:     cfg.SMTPFrom,
 	}
 	if !mailer.Enabled() {
-		log.Printf("admin invites need OM_SMTP_HOST, OM_SMTP_PORT, and OM_SMTP_FROM")
 		return nil
 	}
-	return mailer.Send
+	loginURL := strings.TrimRight(cfg.PublicURL, "/")
+	if loginURL == "" {
+		loginURL = "/"
+	}
+	return func(ctx context.Context, to, password string) error {
+		return mailer.SendTemporaryPassword(ctx, to, password, loginURL)
+	}
 }

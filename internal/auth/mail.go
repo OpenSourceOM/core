@@ -27,18 +27,22 @@ func (m InviteMailer) Enabled() bool {
 	return strings.TrimSpace(m.Host) != "" && strings.TrimSpace(m.From) != "" && m.Port > 0
 }
 
-func (m InviteMailer) Send(ctx context.Context, to, link string) error {
-	if !m.Enabled() {
-		return fmt.Errorf("smtp is not configured")
-	}
+func (m InviteMailer) SendTemporaryPassword(ctx context.Context, to, password, loginURL string) error {
 	to, err := NormalizeEmail(to)
 	if err != nil {
 		return err
 	}
 	body := fmt.Sprintf(
-		"To: %s\r\nFrom: %s\r\nSubject: OpenSourceOM admin invite\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nAn admin invited %s to OpenSourceOM.\r\n\r\nOpen this link and sign in with Google or GitHub using that email address:\r\n%s\r\n\r\nThe link expires in 72 hours.\r\n",
-		to, m.From, to, link,
+		"To: %s\r\nFrom: %s\r\nSubject: OpenSourceOM admin account\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nAn admin created an OpenSourceOM account for %s.\r\n\r\nSign in at %s\r\nTemporary password: %s\r\n\r\nYou will choose a new password at the next sign-in.\r\n",
+		to, m.From, to, loginURL, password,
 	)
+	return m.deliver(ctx, to, body)
+}
+
+func (m InviteMailer) deliver(ctx context.Context, to, body string) error {
+	if !m.Enabled() {
+		return fmt.Errorf("smtp is not configured")
+	}
 
 	addr := net.JoinHostPort(m.Host, strconv.Itoa(m.Port))
 	dialer := &net.Dialer{Timeout: 15 * time.Second}

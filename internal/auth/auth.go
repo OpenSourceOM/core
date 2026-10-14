@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	ProviderGoogle = "google"
-	ProviderGitHub = "github"
+	ProviderGoogle   = "google"
+	ProviderGitHub   = "github"
+	ProviderPassword = "password"
 
 	inviteTTL  = 72 * time.Hour
 	sessionTTL = 7 * 24 * time.Hour
@@ -35,18 +36,26 @@ var (
 	ErrEmailUnverified = errors.New("email unverified")
 	ErrEmailMismatch   = errors.New("email mismatch")
 	ErrInvalidEmail    = errors.New("invalid email")
+	ErrPasswordShort   = errors.New("password too short")
+	ErrEmailTaken      = errors.New("email taken")
+	ErrBadCredentials  = errors.New("invalid email or password")
+	ErrSetupEmail      = errors.New("setup email mismatch")
+	ErrTOTPInvalid     = errors.New("invalid authentication code")
+	ErrTOTPEnabled     = errors.New("two-factor authentication is already on")
 )
 
-// Admin is a console operator. Provider and Subject are the identity.
-// Login, Name, and Email are labels from the identity provider.
+// Admin is a console operator. Password accounts use provider "password".
+// Google and GitHub are optional sign-in methods matched by verified email.
 type Admin struct {
-	ID        string
-	Provider  string
-	Subject   string
-	Login     string
-	Name      string
-	Email     string
-	CreatedAt time.Time
+	ID                 string
+	Provider           string
+	Subject            string
+	Login              string
+	Name               string
+	Email              string
+	MustChangePassword bool
+	TOTPEnabled        bool
+	CreatedAt          time.Time
 }
 
 // Identity is the account an identity provider just confirmed.
@@ -75,11 +84,19 @@ type Directory interface {
 	CreateSession(ctx context.Context, adminID string) (sessionID string, expires time.Time, err error)
 	DeleteSession(ctx context.Context, sessionID string) error
 	AdminForSession(ctx context.Context, sessionID string) (Admin, error)
-	CreateInvite(ctx context.Context, createdBy, email string) (token string, expires time.Time, err error)
-	DiscardInvite(ctx context.Context, token string) error
-	PeekInvite(ctx context.Context, token string) error
-	AcceptInvite(ctx context.Context, token string, identity Identity) (Admin, error)
-	Bootstrap(ctx context.Context, identity Identity) (Admin, error)
+	FindByEmail(ctx context.Context, email string) (Admin, bool, error)
+	SetupAdmin(ctx context.Context, email, password, pinnedEmail string) (Admin, error)
+	CreateWithPassword(ctx context.Context, email, password string, mustChange bool) (Admin, error)
+	ProvisionAdmin(ctx context.Context, email string) (Admin, string, error)
+	CheckPassword(ctx context.Context, email, password string) (Admin, error)
+	ChangePassword(ctx context.Context, adminID, current, next string) error
+	SetPassword(ctx context.Context, email, password string) error
+	BeginTOTP(ctx context.Context, adminID string) (secret string, err error)
+	ConfirmTOTP(ctx context.Context, adminID, code string) (recoveryCodes []string, err error)
+	DisableTOTP(ctx context.Context, adminID, password, code string) error
+	VerifySecondFactor(ctx context.Context, adminID, code string) error
+	CreateLoginChallenge(ctx context.Context, adminID string) (token string, err error)
+	ConsumeLoginChallenge(ctx context.Context, token string) (Admin, error)
 	AdminForToken(ctx context.Context, token string) (Admin, error)
 	TakeTokenPreview(ctx context.Context, adminID string) (string, error)
 	RotateToken(ctx context.Context, adminID string) (string, error)

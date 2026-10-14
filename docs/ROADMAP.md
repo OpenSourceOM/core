@@ -76,7 +76,7 @@ The free OSS core focuses on **defending against external attackers** — unders
 | Community collectors and rule packs | Enterprise compliance workflows |
 | Cloud audit ingest as graph context | Immutable platform audit logs (who used OpenSourceOM) |
 
-Console login in the OSS core is Google or GitHub only. The first sign-in becomes the admin, and later admins join from an email invite. Every signed-in account is an admin and receives a personal API token for scripts. Bring-your-own identity providers stay commercial.
+Console login in the OSS core is email and password. Google and GitHub are optional. The first account is created from the setup form or `om admin create`, and later admins get a temporary password. Every signed-in account is an admin and receives a personal API token for scripts. Bring-your-own identity providers stay commercial.
 
 Cloud provider audit APIs (for example CloudTrail) are Phase 3 graph context ([#33](https://github.com/OpenSourceOM/core/issues/33)): evidence of exposure and attack paths. **Platform audit logs** — operator actions in the console/API, SSO identity, retention, and auditor export — belong in the commercial offering.
 

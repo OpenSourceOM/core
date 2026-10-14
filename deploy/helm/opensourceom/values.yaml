@@ -14,8 +14,10 @@ service:
 
 api:
   env: production
-  # Browser origin for OAuth callbacks and invite links. No trailing path.
+  # Browser origin for the console and optional OAuth callbacks. No trailing path.
   publicURL: ""
+  # When set, only this address can become the first admin.
+  adminEmail: ""
   google:
     clientId: ""
     clientSecret: ""
