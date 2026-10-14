@@ -62,7 +62,7 @@ header h1 { margin: 0; font-size: 1.4rem; }
   padding: 0.45rem 0.6rem;
   font: inherit;
 }
-.gate a.button, .account button, .admins button {
+.gate a.button, .account button, .admins button, .token-banner button {
   background: #1a2440;
   color: var(--text);
   border: 1px solid var(--border);
@@ -112,6 +112,7 @@ header h1 { margin: 0; font-size: 1.4rem; }
   border-radius: 12px;
 }
 .token-banner p { margin: 0 0 0.6rem; }
+.token-banner button { margin-top: 0.6rem; }
 
 .stats {
   display: grid;

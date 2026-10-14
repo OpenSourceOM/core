@@ -254,36 +254,45 @@ func (s *Store) AdminForToken(ctx context.Context, token string) (Admin, error) 
 	return admin, nil
 }
 
-func (s *Store) TakeTokenPreview(ctx context.Context, adminID string) (string, error) {
-	tx, err := s.pool.Begin(ctx)
+func (s *Store) HasToken(ctx context.Context, adminID string) (bool, error) {
+	var has bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT NULLIF(api_token_hash, '') IS NOT NULL
+		FROM admins WHERE id = $1
+	`, adminID).Scan(&has)
+	if errors.Is(err, pgx.ErrNoRows) || invalidUUID(err) {
+		return false, ErrNotFound
+	}
+	return has, err
+}
+
+func (s *Store) CreateToken(ctx context.Context, adminID string) (string, error) {
+	raw, err := NewToken()
 	if err != nil {
 		return "", err
 	}
-	defer tx.Rollback(ctx)
-
-	var preview *string
-	err = tx.QueryRow(ctx, `
-		SELECT api_token_preview FROM admins WHERE id = $1 FOR UPDATE
-	`, adminID).Scan(&preview)
-	if errors.Is(err, pgx.ErrNoRows) || invalidUUID(err) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE admins
+		SET api_token_hash = $1
+		WHERE id = $2 AND NULLIF(api_token_hash, '') IS NULL
+	`, HashToken(raw), adminID)
+	if invalidUUID(err) {
 		return "", ErrNotFound
 	}
 	if err != nil {
 		return "", err
 	}
-	if preview == nil || *preview == "" {
-		if err := tx.Commit(ctx); err != nil {
-			return "", err
-		}
-		return "", nil
+	if tag.RowsAffected() == 1 {
+		return raw, nil
 	}
-	if _, err := tx.Exec(ctx, `UPDATE admins SET api_token_preview = NULL WHERE id = $1`, adminID); err != nil {
+	has, err := s.HasToken(ctx, adminID)
+	if err != nil {
 		return "", err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return "", err
+	if !has {
+		return "", ErrNotFound
 	}
-	return *preview, nil
+	return "", ErrTokenExists
 }
 
 func (s *Store) RotateToken(ctx context.Context, adminID string) (string, error) {
@@ -293,7 +302,7 @@ func (s *Store) RotateToken(ctx context.Context, adminID string) (string, error)
 	}
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE admins
-		SET api_token_hash = $1, api_token_preview = NULL
+		SET api_token_hash = $1
 		WHERE id = $2
 	`, HashToken(raw), adminID)
 	if invalidUUID(err) {
@@ -451,19 +460,15 @@ func findAdmin(ctx context.Context, q querier, provider, subject string) (Admin,
 }
 
 func insertAdmin(ctx context.Context, q querier, identity Identity, email string) (Admin, error) {
-	raw, err := NewToken()
-	if err != nil {
-		return Admin{}, err
-	}
 	if email == "" && len(identity.Emails) > 0 {
 		email = identity.Emails[0]
 	}
 	var admin Admin
-	err = q.QueryRow(ctx, `
-		INSERT INTO admins (provider, subject, login, display_name, email, api_token_hash, api_token_preview)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	err := q.QueryRow(ctx, `
+		INSERT INTO admins (provider, subject, login, display_name, email)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id::text, provider, subject, login, display_name, email, must_change_password, totp_enabled, created_at
-	`, identity.Provider, identity.Subject, identity.Login, identity.Name, email, HashToken(raw), raw).Scan(
+	`, identity.Provider, identity.Subject, identity.Login, identity.Name, email).Scan(
 		&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.MustChangePassword, &admin.TOTPEnabled, &admin.CreatedAt,
 	)
 	return admin, err

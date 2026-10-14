@@ -16,6 +16,7 @@ func Execute() error {
 	rootCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(adminCmd)
+	rootCmd.AddCommand(tokenCmd)
 	rootCmd.AddCommand(scanCmd)
 	rootCmd.AddCommand(enrichCmd)
 	rootCmd.AddCommand(rulesCmd)

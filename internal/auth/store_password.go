@@ -452,19 +452,15 @@ func insertPasswordAdmin(ctx context.Context, q passwordWriter, email, password 
 	if err != nil {
 		return Admin{}, err
 	}
-	raw, err := NewToken()
-	if err != nil {
-		return Admin{}, err
-	}
 	var admin Admin
 	err = q.QueryRow(ctx, `
 		INSERT INTO admins (
 			provider, subject, login, display_name, email,
-			password_hash, must_change_password, api_token_hash, api_token_preview
+			password_hash, must_change_password
 		)
-		VALUES ('password', $1, $1, '', $1, $2, $3, $4, $5)
+		VALUES ('password', $1, $1, '', $1, $2, $3)
 		RETURNING id::text, provider, subject, login, display_name, email, must_change_password, totp_enabled, created_at
-	`, email, encoded, mustChange, HashToken(raw), raw).Scan(
+	`, email, encoded, mustChange).Scan(
 		&admin.ID, &admin.Provider, &admin.Subject, &admin.Login, &admin.Name, &admin.Email, &admin.MustChangePassword, &admin.TOTPEnabled, &admin.CreatedAt,
 	)
 	if uniqueViolation(err) {

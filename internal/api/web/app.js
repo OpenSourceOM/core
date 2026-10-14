@@ -109,11 +109,17 @@ function clearConsoleError() {
 function showToken(token, message) {
   const banner = document.getElementById("token-banner");
   const field = document.getElementById("token-value");
-  banner.querySelector("p").textContent = message || "This is your API token. Copy it now. It will not be shown again.";
+  banner.querySelector("p").textContent = message || "Copy it now. It will not be shown again.";
   field.value = token;
   banner.classList.remove("hidden");
   field.focus();
   field.select();
+}
+
+function setTokenButton() {
+  const button = document.getElementById("token-btn");
+  const has = Boolean(currentAdmin && currentAdmin.has_api_token);
+  button.textContent = has ? "Rotate API token" : "Create API token";
 }
 
 function adminLabel(admin) {
@@ -462,7 +468,7 @@ function showConsole(session) {
   if (window.location.pathname !== "/") {
     window.history.replaceState({}, "", "/");
   }
-  if (session.api_token) showToken(session.api_token);
+  setTokenButton();
 }
 
 async function renderAdmins() {
@@ -530,22 +536,6 @@ async function renderAdmins() {
     }
   });
   panel.append(form, status);
-
-  const rotate = document.createElement("button");
-  rotate.type = "button";
-  rotate.textContent = "Rotate API token";
-  rotate.addEventListener("click", async () => {
-    rotate.disabled = true;
-    try {
-      const created = await fetchJSON("/v1/admins/token", { method: "POST" });
-      showToken(created.token);
-    } catch (err) {
-      showConsoleError(err);
-    } finally {
-      rotate.disabled = false;
-    }
-  });
-  panel.appendChild(rotate);
 }
 
 async function removeAdmin(id) {
@@ -823,6 +813,30 @@ document.getElementById("query-select").addEventListener("change", () => {
   refresh().catch(showConsoleError);
 });
 document.getElementById("rules-btn").addEventListener("click", runRules);
+document.getElementById("token-btn").addEventListener("click", async () => {
+  const button = document.getElementById("token-btn");
+  const has = Boolean(currentAdmin && currentAdmin.has_api_token);
+  if (has && !window.confirm("Replace the current API token? Scripts using it will stop working.")) {
+    return;
+  }
+  button.disabled = true;
+  try {
+    const created = await fetchJSON(has ? "/v1/admins/token/rotate" : "/v1/admins/token", { method: "POST" });
+    currentAdmin.has_api_token = true;
+    showToken(created.token, has
+      ? "This replaces the previous API token. Copy it now. It will not be shown again."
+      : "This API token is for scripts. Copy it now. It will not be shown again.");
+    setTokenButton();
+  } catch (err) {
+    showConsoleError(err);
+  } finally {
+    button.disabled = false;
+  }
+});
+document.getElementById("token-dismiss").addEventListener("click", () => {
+  document.getElementById("token-value").value = "";
+  document.getElementById("token-banner").classList.add("hidden");
+});
 document.getElementById("logout-btn").addEventListener("click", async () => {
   await fetch("/v1/auth/logout", { method: "POST" });
   window.location.href = "/login";

@@ -80,17 +80,16 @@ func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
 	}
 	if admin, ok := s.currentAdmin(r); ok {
 		body["authenticated"] = true
-		body["admin"] = adminView(admin)
+		view := adminView(admin)
 		if !admin.MustChangePassword {
-			preview, err := s.admins.TakeTokenPreview(r.Context(), admin.ID)
+			hasToken, err := s.admins.HasToken(r.Context(), admin.ID)
 			if err != nil {
 				writeAdminStoreError(w, err)
 				return
 			}
-			if preview != "" {
-				body["api_token"] = preview
-			}
+			view["has_api_token"] = hasToken
 		}
+		body["admin"] = view
 	}
 	writeJSON(w, http.StatusOK, body)
 }
@@ -160,6 +159,24 @@ func (s *Server) handleCreateAdmin(w http.ResponseWriter, r *http.Request) {
 		"password": password,
 		"emailed":  emailed,
 	})
+}
+
+func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	admin, ok := s.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	token, err := s.admins.CreateToken(r.Context(), admin.ID)
+	if errors.Is(err, auth.ErrTokenExists) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "An API token already exists. Rotate it to replace the current one."})
+		return
+	}
+	if err != nil {
+		writeAdminStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"token": token})
 }
 
 func (s *Server) handleRotateToken(w http.ResponseWriter, r *http.Request) {

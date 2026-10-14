@@ -71,6 +71,7 @@ var adminCreateCmd = &cobra.Command{
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "created admin %s\n", email)
+		fmt.Fprintf(os.Stderr, "No API token was created. Run `om token create --email %s` when a script needs one.\n", email)
 		return nil
 	},
 }
