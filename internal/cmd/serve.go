@@ -35,12 +35,14 @@ var serveCmd = &cobra.Command{
 		warnOAuthConfig(cfg)
 		providers := auth.ProvidersFromConfig(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GitHubClientID, cfg.GitHubClientSecret)
 
+		sendPassword, sendReset := consoleMail(cfg)
 		server := api.NewServer(store).WithConsoleAuth(api.ConsoleAuth{
 			Directory:    admins,
 			PublicURL:    cfg.PublicURL,
 			Providers:    providers,
 			SetupEmail:   cfg.AdminEmail,
-			SendPassword: passwordSender(cfg),
+			SendPassword: sendPassword,
+			SendReset:    sendReset,
 		})
 		addr := fmt.Sprintf(":%d", cfg.APIPort)
 		return server.ListenAndServe(addr)
@@ -56,7 +58,7 @@ func warnOAuthConfig(cfg config.Config) {
 	}
 }
 
-func passwordSender(cfg config.Config) func(context.Context, string, string) error {
+func consoleMail(cfg config.Config) (func(context.Context, string, string) error, func(context.Context, string, string) error) {
 	mailer := auth.InviteMailer{
 		Host:     cfg.SMTPHost,
 		Port:     cfg.SMTPPort,
@@ -65,13 +67,17 @@ func passwordSender(cfg config.Config) func(context.Context, string, string) err
 		From:     cfg.SMTPFrom,
 	}
 	if !mailer.Enabled() {
-		return nil
+		return nil, nil
 	}
 	loginURL := strings.TrimRight(cfg.PublicURL, "/")
 	if loginURL == "" {
 		loginURL = "/"
 	}
-	return func(ctx context.Context, to, password string) error {
+	sendPassword := func(ctx context.Context, to, password string) error {
 		return mailer.SendTemporaryPassword(ctx, to, password, loginURL)
 	}
+	sendReset := func(ctx context.Context, to, resetURL string) error {
+		return mailer.SendPasswordReset(ctx, to, resetURL)
+	}
+	return sendPassword, sendReset
 }

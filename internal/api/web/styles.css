@@ -45,6 +45,15 @@ header h1 { margin: 0; font-size: 1.4rem; }
 .gate p { color: var(--muted); line-height: 1.5; }
 .gate-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
 .auth-form { display: grid; gap: 0.55rem; width: min(100%, 22rem); }
+.auth-form button.link {
+  justify-self: start;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+}
 .auth-form input, .gate input {
   background: #0a1224;
   color: var(--text);

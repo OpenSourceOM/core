@@ -129,6 +129,79 @@ func TestStoreInviteSessionAndLastAdmin(t *testing.T) {
 	}
 }
 
+func TestPasswordResetReplacesThePasswordAndSessions(t *testing.T) {
+	store := openAuthStore(t)
+	ctx := context.Background()
+	admin, err := store.SetupAdmin(ctx, "ada@example.com", "correct-horse-battery", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateWithPassword(ctx, "temp@example.com", "temporary-password", true); err != nil {
+		t.Fatal(err)
+	}
+	if token, err := store.RequestPasswordReset(ctx, "nobody@example.com"); err != nil || token != "" {
+		t.Fatalf("unknown = %q err=%v", token, err)
+	}
+	if _, err := store.pool.Exec(ctx, `
+		INSERT INTO admins (provider, subject, login, email)
+		VALUES ('github', '9', 'octo', 'octo@example.com')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if token, err := store.RequestPasswordReset(ctx, "octo@example.com"); err != nil || token != "" {
+		t.Fatalf("oauth = %q err=%v", token, err)
+	}
+
+	first, err := store.RequestPasswordReset(ctx, "Ada@Example.com")
+	if err != nil || first == "" {
+		t.Fatalf("first token = %q err=%v", first, err)
+	}
+	second, err := store.RequestPasswordReset(ctx, "ada@example.com")
+	if err != nil || second == "" || second == first {
+		t.Fatalf("second token = %q err=%v", second, err)
+	}
+	if err := store.CompletePasswordReset(ctx, first, "another-password-ok"); err != ErrResetInvalid {
+		t.Fatalf("replaced token = %v", err)
+	}
+	if err := store.CompletePasswordReset(ctx, second, "short"); err != ErrPasswordShort {
+		t.Fatalf("short = %v", err)
+	}
+	session, _, err := store.CreateSession(ctx, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompletePasswordReset(ctx, second, "a-new-password-ok"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AdminForSession(ctx, session); err != ErrNotFound {
+		t.Fatalf("session after reset = %v", err)
+	}
+	if _, err := store.CheckPassword(ctx, "ada@example.com", "correct-horse-battery"); err != ErrBadCredentials {
+		t.Fatalf("old password = %v", err)
+	}
+	if _, err := store.CheckPassword(ctx, "ada@example.com", "a-new-password-ok"); err != nil {
+		t.Fatalf("new password = %v", err)
+	}
+	if err := store.CompletePasswordReset(ctx, second, "another-password-ok"); err != ErrResetInvalid {
+		t.Fatalf("reuse = %v", err)
+	}
+
+	tempToken, err := store.RequestPasswordReset(ctx, "temp@example.com")
+	if err != nil || tempToken == "" {
+		t.Fatal(err)
+	}
+	if _, err := store.pool.Exec(ctx, `UPDATE admin_password_resets SET expires_at = now() - interval '1 minute' WHERE id = $1`, HashToken(tempToken)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompletePasswordReset(ctx, tempToken, "another-password-ok"); err != ErrResetInvalid {
+		t.Fatalf("expired = %v", err)
+	}
+	loaded, found, err := store.FindByEmail(ctx, "temp@example.com")
+	if err != nil || !found || !loaded.MustChangePassword {
+		t.Fatalf("temp admin = %+v found=%v err=%v", loaded, found, err)
+	}
+}
+
 func TestStoreExpiredInvite(t *testing.T) {
 	store := openAuthStore(t)
 	ctx := context.Background()

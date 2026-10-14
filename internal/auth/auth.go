@@ -39,6 +39,7 @@ var (
 	ErrPasswordShort   = errors.New("password too short")
 	ErrEmailTaken      = errors.New("email taken")
 	ErrBadCredentials  = errors.New("invalid email or password")
+	ErrResetInvalid    = errors.New("password reset invalid")
 	ErrSetupEmail      = errors.New("setup email mismatch")
 	ErrTOTPInvalid     = errors.New("invalid authentication code")
 	ErrTOTPEnabled     = errors.New("two-factor authentication is already on")
@@ -91,6 +92,8 @@ type Directory interface {
 	CheckPassword(ctx context.Context, email, password string) (Admin, error)
 	ChangePassword(ctx context.Context, adminID, current, next string) error
 	SetPassword(ctx context.Context, email, password string) error
+	RequestPasswordReset(ctx context.Context, email string) (token string, err error)
+	CompletePasswordReset(ctx context.Context, token, password string) error
 	BeginTOTP(ctx context.Context, adminID string) (secret string, err error)
 	ConfirmTOTP(ctx context.Context, adminID, code string) (recoveryCodes []string, err error)
 	DisableTOTP(ctx context.Context, adminID, password, code string) error

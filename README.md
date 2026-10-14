@@ -124,7 +124,7 @@ The API image compiles `github.com/aws/aws-sdk-go-v2/service/ec2`. Give Docker a
 
 The console signs people in with an email and password. While no admin exists, the page asks you to create one. Keep the API port private until you do. Set `OM_ADMIN_EMAIL` when that first address should be fixed in advance. `om admin create --email you@example.com` does the same from the machine before the port is reachable.
 
-An admin adds the next person from the console. That person gets a temporary password, shown once, and chooses their own at the next sign-in. SMTP is optional; when it is set, the temporary password is emailed too. Google and GitHub buttons appear only when those client credentials are set, and the provider email must match an existing admin. Every console account is an admin. Two-factor authentication is optional per admin.
+An admin adds the next person from the console. That person gets a temporary password, shown once, and chooses their own at the next sign-in. SMTP is optional. When it is set, the temporary password is emailed, and a forgotten password can be reset from a one-hour link. Google and GitHub buttons appear only when those client credentials are set, and the provider email must match an existing admin. Every console account is an admin. Two-factor authentication is optional per admin.
 
 Each admin gets a personal API token, shown once in the console. Collectors, CI, and `curl` send it as `Authorization: Bearer` or `X-API-Key` on every `/v1` call except health, the session probe, and logout. The CLI talks to Postgres and does not use the token. A token cannot add or remove admins.
 
