@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/OpenSourceOM/core/internal/auth"
 	"github.com/OpenSourceOM/core/internal/graph"
 	"github.com/OpenSourceOM/core/internal/migrate"
 	"github.com/jackc/pgx/v5"
@@ -24,11 +25,12 @@ import (
 )
 
 func TestHandleBlastRadiusRequiresIdentity(t *testing.T) {
-	server := NewServer(nil, "")
+	handler := blastRadiusHandler(t, nil)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/v1/identity/blast-radius", nil)
+	request.Header.Set("X-API-Key", blastRadiusToken)
 
-	server.Handler().ServeHTTP(recorder, request)
+	handler.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
@@ -69,7 +71,7 @@ func TestHandleBlastRadius(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	handler := NewServer(store, "").Handler()
+	handler := blastRadiusHandler(t, store)
 	wantIDs := db + "," + role
 
 	t.Run("identity id", func(t *testing.T) {
@@ -95,6 +97,7 @@ func TestHandleBlastRadius(t *testing.T) {
 	t.Run("unknown name", func(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequest(http.MethodGet, "/v1/identity/blast-radius?name=missing", nil)
+		request.Header.Set("X-API-Key", blastRadiusToken)
 		handler.ServeHTTP(recorder, request)
 		if recorder.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
@@ -102,10 +105,20 @@ func TestHandleBlastRadius(t *testing.T) {
 	})
 }
 
+const blastRadiusToken = "blast-radius-token"
+
+func blastRadiusHandler(t *testing.T, store *graph.Store) http.Handler {
+	t.Helper()
+	directory := newMemoryDirectory()
+	directory.rememberToken(blastRadiusToken, auth.Admin{ID: "admin-1", Provider: auth.ProviderGitHub, Subject: "1", Login: "ada"})
+	return NewServer(store).WithConsoleAuth(ConsoleAuth{Directory: directory, PublicURL: "http://localhost:8080"}).Handler()
+}
+
 func getBlastRadius(t *testing.T, handler http.Handler, path string) graph.BlastRadiusResult {
 	t.Helper()
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, path, nil)
+	request.Header.Set("X-API-Key", blastRadiusToken)
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, body %s", recorder.Code, recorder.Body.String())

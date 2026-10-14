@@ -9,13 +9,33 @@
 </head>
 <body>
   <header>
-    <h1>OpenSourceOM</h1>
-    <p class="tagline">Graph-native cloud security</p>
+    <div>
+      <h1>OpenSourceOM</h1>
+      <p class="tagline">Graph-native cloud security</p>
+    </div>
+    <div id="account" class="account hidden">
+      <span id="account-label"></span>
+      <button id="security-btn" type="button">Security</button>
+      <button id="admins-btn" type="button">Admins</button>
+      <button id="logout-btn" type="button">Log out</button>
+    </div>
   </header>
 
-  <section id="stats" class="stats"></section>
+  <section id="gate" class="gate">
+    <h2 id="gate-title">Sign in</h2>
+    <p id="gate-message">Checking session…</p>
+    <div id="gate-actions" class="gate-actions"></div>
+  </section>
 
-  <main class="layout">
+  <section id="token-banner" class="token-banner hidden" role="status">
+    <p>This is your API token. Copy it now. It will not be shown again.</p>
+    <input id="token-value" readonly aria-label="API token" />
+  </section>
+  <section id="security-panel" class="admins hidden"></section>
+  <section id="admins-panel" class="admins hidden"></section>
+  <section id="stats" class="stats hidden"></section>
+
+  <main id="console" class="layout hidden">
     <aside>
       <h2>Findings</h2>
       <div id="findings" class="findings"></div>
@@ -26,13 +46,6 @@
         <select id="query-select">
           <option value="">Full graph snapshot</option>
         </select>
-        <input
-          id="api-key"
-          type="password"
-          placeholder="API key"
-          autocomplete="off"
-        />
-        <button id="save-api-key-btn" type="button">Save API key</button>
         <button id="rules-btn" type="button">Run CSPM rules</button>
         <button id="refresh-btn" type="button">Refresh</button>
       </div>
