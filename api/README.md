@@ -14,4 +14,4 @@ HTTP and GraphQL API for the web UI, collectors, and integrations.
 - `GET /v1/findings` — prioritized findings with path context
 - `GET /v1/health` — readiness for orchestration
 
-Authentication: when `OM_API_SECRET` is set, every `/v1/*` route except `GET /v1/health` requires `Authorization: Bearer` or `X-API-Key`. An empty secret leaves the API open for local development. The console sends `X-API-Key` from `localStorage.om_api_key`. SSO and other enterprise identity integrations are commercial and live outside this repo.
+Authentication: every `/v1/*` route except `GET /v1/health`, `GET /v1/auth/session`, `POST /v1/auth/logout`, `POST /v1/auth/setup`, `POST /v1/auth/login`, and `POST /v1/auth/totp` requires a console session cookie or that admin's personal API token (`Authorization: Bearer` or `X-API-Key`). Admin routes (`/v1/admins`, including token rotation) require the session. People sign in with email and password. The first account is created from the setup form or `om admin create`. Google and GitHub are optional and must match an existing admin email. Enterprise SAML and custom identity providers live outside this repo.

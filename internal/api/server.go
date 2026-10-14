@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/OpenSourceOM/core/internal/auth"
 	"github.com/OpenSourceOM/core/internal/export"
 	"github.com/OpenSourceOM/core/internal/graph"
 	"github.com/OpenSourceOM/core/internal/rules"
@@ -27,24 +28,29 @@ const (
 )
 
 type Server struct {
-	store     *graph.Store
-	health    healthChecker
-	querier   *graph.Querier
-	rules     *rules.Engine
-	apiSecret string
+	store         *graph.Store
+	health        healthChecker
+	querier       *graph.Querier
+	rules         *rules.Engine
+	admins        auth.Directory
+	publicURL     string
+	providers     map[string]auth.Provider
+	setupEmail    string
+	sendPassword  func(ctx context.Context, to, password string) error
+	loginLimit    *loginLimiter
+	secureCookies bool
 }
 
 type healthChecker interface {
 	Ping(context.Context) error
 }
 
-func NewServer(store *graph.Store, apiSecret string) *Server {
+func NewServer(store *graph.Store) *Server {
 	return &Server{
-		store:     store,
-		health:    store,
-		querier:   graph.NewQuerier(store),
-		rules:     rules.NewEngine(store),
-		apiSecret: apiSecret,
+		store:   store,
+		health:  store,
+		querier: graph.NewQuerier(store),
+		rules:   rules.NewEngine(store),
 	}
 }
 
@@ -63,24 +69,49 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/rules/run", s.handleRulesRun)
 	mux.HandleFunc("GET /v1/identity/blast-radius", s.handleBlastRadius)
 	mux.HandleFunc("POST /v1/export/slack", s.handleExportSlack)
+	mux.HandleFunc("GET /v1/auth/session", s.handleAuthSession)
+	mux.HandleFunc("POST /v1/auth/setup", s.handleAuthSetup)
+	mux.HandleFunc("POST /v1/auth/login", s.handleAuthLogin)
+	mux.HandleFunc("POST /v1/auth/totp", s.handleAuthTOTP)
+	mux.HandleFunc("POST /v1/auth/password", s.handleChangePassword)
+	mux.HandleFunc("POST /v1/auth/totp/setup", s.handleTOTPSetup)
+	mux.HandleFunc("POST /v1/auth/totp/confirm", s.handleTOTPConfirm)
+	mux.HandleFunc("POST /v1/auth/totp/disable", s.handleTOTPDisable)
+	mux.HandleFunc("POST /v1/auth/logout", s.handleLogout)
+	mux.HandleFunc("GET /v1/admins", s.handleListAdmins)
+	mux.HandleFunc("POST /v1/admins", s.handleCreateAdmin)
+	mux.HandleFunc("POST /v1/admins/token", s.handleRotateToken)
+	mux.HandleFunc("DELETE /v1/admins/{id}", s.handleDeleteAdmin)
+	mux.HandleFunc("GET /auth/{provider}/start", s.handleAuthStart)
+	mux.HandleFunc("GET /auth/{provider}/callback", s.handleAuthCallback)
+	mux.HandleFunc("GET /login", handleConsolePage)
 	mux.Handle("/", uiHandler())
 	mux.Handle("/ui/", http.StripPrefix("/ui/", uiHandler()))
 	return s.requireAPIAuth(mux)
 }
 
-// requireAPIAuth demands the shared secret on every /v1 route except
-// GET /v1/health. The console and other non-API paths stay open so the
-// page can load; it sends the key from localStorage on API calls.
-// An empty secret leaves the API open for local development.
+// requireAPIAuth demands a console session or that admin's API token on every
+// /v1 route except health, the session probe, and logout. The HTML stays
+// open so the login page can load. Admin management still requires a session.
 func (s *Server) requireAPIAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet && r.URL.Path == "/v1/health" {
+		if publicV1(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/v1/") && !s.authorize(r) {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-			return
+		if strings.HasPrefix(r.URL.Path, "/v1/") {
+			if admin, ok := s.currentAdmin(r); ok {
+				if admin.MustChangePassword && r.URL.Path != "/v1/auth/password" {
+					writeJSON(w, http.StatusForbidden, map[string]string{"error": "Choose a new password before using the console."})
+					return
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+			if !s.authorize(r) {
+				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -354,14 +385,23 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) authorize(r *http.Request) bool {
-	if s.apiSecret == "" {
+	if _, ok := s.currentAdmin(r); ok {
 		return true
 	}
-	authHeader := r.Header.Get("Authorization")
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		return strings.TrimPrefix(authHeader, "Bearer ") == s.apiSecret
+	token := presentedSecret(r)
+	if token == "" || s.admins == nil {
+		return false
 	}
-	return r.Header.Get("X-API-Key") == s.apiSecret
+	admin, err := s.admins.AdminForToken(r.Context(), token)
+	return err == nil && !admin.MustChangePassword
+}
+
+func presentedSecret(r *http.Request) string {
+	header := r.Header.Get("Authorization")
+	if strings.HasPrefix(header, "Bearer ") {
+		return strings.TrimPrefix(header, "Bearer ")
+	}
+	return r.Header.Get("X-API-Key")
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

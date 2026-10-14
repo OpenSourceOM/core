@@ -11,6 +11,17 @@ const nodeColors = {
 let network = null;
 let graphData = { nodes: [], edges: [] };
 let lastGraphNodes = [];
+let currentAdmin = null;
+
+const providerLabels = { google: "Google", github: "GitHub" };
+const authErrors = {
+  not_admin: "This Google or GitHub account is not an admin. Sign in with the email and password for an existing admin.",
+  email_unverified: "The provider has not verified an email address for this account.",
+  oauth_denied: "The sign-in was canceled.",
+  oauth_state: "The sign-in session expired. Try again.",
+  oauth_failed: "Sign-in failed. Try again.",
+  provider_unconfigured: "That sign-in provider is not configured on this server.",
+};
 
 async function showBlastRadius(identityID, name) {
   const panel = document.getElementById("blast-radius");
@@ -30,63 +41,36 @@ async function runRules() {
   btn.disabled = true;
   btn.textContent = "Running rules…";
   try {
-    const res = await fetch("/v1/rules/run", { method: "POST", headers: apiHeaders() });
-    if (!res.ok) throw await errorFromResponse(res, "/v1/rules/run");
+    await fetchJSON("/v1/rules/run", { method: "POST" });
     await refresh();
   } catch (err) {
-    if (err.schemaNotReady) {
-      showConsoleError(err);
-      return;
-    }
-    alert(`CSPM rules require the API secret: ${err.message}`);
+    showConsoleError(err);
   } finally {
     btn.disabled = false;
     btn.textContent = "Run CSPM rules";
   }
 }
 
-function loadAPIKey() {
-  const input = document.getElementById("api-key");
-  input.value = localStorage.getItem("om_api_key") || "";
-}
-
-async function saveAPIKey() {
-  const input = document.getElementById("api-key");
-  const key = input.value.trim();
-
-  if (key) {
-    localStorage.setItem("om_api_key", key);
-  } else {
-    localStorage.removeItem("om_api_key");
-  }
-  await loadConsole();
-}
-
-function apiHeaders() {
-  const key = localStorage.getItem("om_api_key");
-  if (!key) return {};
-  return { "X-API-Key": key };
-}
-
-async function errorFromResponse(res, path) {
-  let body = null;
+async function readError(res) {
   try {
-    body = await res.json();
+    const body = await res.json();
+    if (body && body.code === "schema_not_ready") res.schemaNotReady = true;
+    if (body && body.error) return body.error;
   } catch (err) {
-    body = null;
+    return `request returned ${res.status}`;
   }
-  const error = new Error(`${path} returned ${res.status}`);
-  error.status = res.status;
-  if (body && body.code === "schema_not_ready" && body.error) {
-    error.schemaNotReady = true;
-    error.message = body.error;
-  }
-  return error;
+  return `request returned ${res.status}`;
 }
 
-async function fetchJSON(path) {
-  const res = await fetch(path, { headers: apiHeaders() });
-  if (!res.ok) throw await errorFromResponse(res, path);
+async function fetchJSON(path, options) {
+  const res = await fetch(path, options);
+  if (!res.ok) {
+    const error = new Error(await readError(res));
+    error.status = res.status;
+    if (res.schemaNotReady) error.schemaNotReady = true;
+    throw error;
+  }
+  if (res.status === 204) return null;
   return res.json();
 }
 
@@ -94,31 +78,387 @@ function isUnauthorized(err) {
   return err && err.status === 401;
 }
 
-function consoleLoadError(err) {
-  if (err && err.schemaNotReady) {
-    return err.message;
-  }
-  if (!isUnauthorized(err)) {
-    return `Failed to load console: ${err.message}`;
-  }
-  if (!localStorage.getItem("om_api_key")) {
-    return "The server refused to load the graph because no API key is saved. Paste the OM_API_SECRET value into the API key field and click Save API key.";
-  }
-  return "The server refused the saved API key. Paste the OM_API_SECRET value into the API key field and click Save API key.";
-}
-
 function showConsoleError(err) {
+  if (err && err.schemaNotReady) {
+    const banner = document.getElementById("console-error");
+    banner.textContent = err.message;
+    banner.classList.remove("hidden");
+    return;
+  }
+  if (isUnauthorized(err)) {
+    fetchJSON("/v1/auth/session").then((session) => {
+      renderGate(session);
+      document.getElementById("gate-message").textContent = "Your session ended. Sign in again.";
+    }).catch(() => {
+      showSignedOut("Your session ended. Sign in again.");
+    });
+    return;
+  }
   const banner = document.getElementById("console-error");
-  banner.textContent = consoleLoadError(err);
+  banner.textContent = `Failed to load console: ${err.message}`;
   banner.classList.remove("hidden");
-  document.getElementById("api-key").classList.toggle("needs-key", isUnauthorized(err));
 }
 
 function clearConsoleError() {
   const banner = document.getElementById("console-error");
   banner.textContent = "";
   banner.classList.add("hidden");
-  document.getElementById("api-key").classList.remove("needs-key");
+}
+
+function showToken(token, message) {
+  const banner = document.getElementById("token-banner");
+  const field = document.getElementById("token-value");
+  banner.querySelector("p").textContent = message || "This is your API token. Copy it now. It will not be shown again.";
+  field.value = token;
+  banner.classList.remove("hidden");
+  field.focus();
+  field.select();
+}
+
+function adminLabel(admin) {
+  const who = admin.login || admin.name || "Admin";
+  const via = providerLabels[admin.provider] || admin.provider;
+  return `${who} · ${via}`;
+}
+
+function showSignedOut(message) {
+  currentAdmin = null;
+  document.getElementById("console").classList.add("hidden");
+  document.getElementById("stats").classList.add("hidden");
+  document.getElementById("account").classList.add("hidden");
+  document.getElementById("admins-panel").classList.add("hidden");
+  document.getElementById("security-panel").classList.add("hidden");
+  document.getElementById("token-banner").classList.add("hidden");
+  const gate = document.getElementById("gate");
+  gate.classList.remove("hidden");
+  document.getElementById("gate-title").textContent = "Sign in";
+  document.getElementById("gate-message").textContent = message;
+  document.getElementById("gate-actions").replaceChildren();
+}
+
+function renderGate(session) {
+  const params = new URLSearchParams(window.location.search);
+  const errorCode = params.get("error");
+  const providers = session.providers || [];
+  const gate = document.getElementById("gate");
+  gate.classList.remove("hidden");
+  document.getElementById("console").classList.add("hidden");
+  document.getElementById("stats").classList.add("hidden");
+  document.getElementById("account").classList.add("hidden");
+
+  let title = "Sign in";
+  let message = "Sign in with the email and password for an admin account.";
+  if (!session.login_enabled) {
+    title = "Console login is not available";
+    message = "The API process does not have an admin store.";
+  } else if (params.get("totp") === "1") {
+    title = "Two-factor authentication";
+    message = "Enter the code from your authenticator app, or a recovery code.";
+  } else if (session.needs_setup) {
+    title = "Create the admin account";
+    message = "Choose an email and password. Whoever can open this page first becomes the admin, so keep the port private until you finish.";
+  }
+
+  if (errorCode && authErrors[errorCode]) {
+    message = authErrors[errorCode];
+  }
+  document.getElementById("gate-title").textContent = title;
+  document.getElementById("gate-message").textContent = message;
+
+  const actions = document.getElementById("gate-actions");
+  actions.replaceChildren();
+  if (!session.login_enabled) return;
+  if (params.get("totp") === "1") {
+    actions.appendChild(totpForm());
+    return;
+  }
+  if (session.needs_setup) {
+    actions.appendChild(setupForm(session.setup_email || ""));
+    return;
+  }
+  actions.appendChild(loginForm());
+  providers.forEach((provider) => {
+    const link = document.createElement("a");
+    link.className = "button";
+    link.href = `/auth/${provider}/start`;
+    link.textContent = `Sign in with ${providerLabels[provider] || provider}`;
+    actions.appendChild(link);
+  });
+}
+
+function field(type, name, label, value) {
+  const input = document.createElement("input");
+  input.type = type;
+  input.name = name;
+  input.required = true;
+  input.autocomplete = type === "password" ? "current-password" : "username";
+  input.setAttribute("aria-label", label);
+  input.placeholder = label;
+  if (value) {
+    input.value = value;
+    input.readOnly = true;
+  }
+  return input;
+}
+
+function formStatus() {
+  const status = document.createElement("p");
+  status.className = "meta";
+  return status;
+}
+
+function setupForm(pinnedEmail) {
+  const form = document.createElement("form");
+  form.className = "auth-form";
+  const email = field("email", "email", "Email", pinnedEmail);
+  const password = field("password", "password", "Password");
+  password.autocomplete = "new-password";
+  password.minLength = 12;
+  const confirm = field("password", "confirm", "Confirm password");
+  confirm.autocomplete = "new-password";
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.textContent = "Create admin";
+  const status = formStatus();
+  form.append(email, password, confirm, submit, status);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (password.value !== confirm.value) {
+      status.textContent = "Passwords do not match.";
+      return;
+    }
+    submit.disabled = true;
+    try {
+      await fetchJSON("/v1/auth/setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.value, password: password.value }),
+      });
+      window.location.href = "/";
+    } catch (err) {
+      status.textContent = err.message;
+      submit.disabled = false;
+    }
+  });
+  return form;
+}
+
+function loginForm() {
+  const form = document.createElement("form");
+  form.className = "auth-form";
+  const email = field("email", "email", "Email");
+  const password = field("password", "password", "Password");
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.textContent = "Sign in";
+  const status = formStatus();
+  form.append(email, password, submit, status);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    try {
+      const result = await fetchJSON("/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.value, password: password.value }),
+      });
+      if (result && result.totp_required) {
+        window.location.href = "/login?totp=1";
+        return;
+      }
+      window.location.href = "/";
+    } catch (err) {
+      status.textContent = err.message;
+      submit.disabled = false;
+    }
+  });
+  return form;
+}
+
+function totpForm() {
+  const form = document.createElement("form");
+  form.className = "auth-form";
+  const code = field("text", "code", "Authentication code");
+  code.autocomplete = "one-time-code";
+  code.required = true;
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.textContent = "Continue";
+  const status = formStatus();
+  form.append(code, submit, status);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    try {
+      await fetchJSON("/v1/auth/totp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code.value }),
+      });
+      window.location.href = "/";
+    } catch (err) {
+      status.textContent = err.message;
+      submit.disabled = false;
+    }
+  });
+  return form;
+}
+
+function renderPasswordChange() {
+  document.getElementById("console").classList.add("hidden");
+  document.getElementById("stats").classList.add("hidden");
+  document.getElementById("account").classList.add("hidden");
+  const gate = document.getElementById("gate");
+  gate.classList.remove("hidden");
+  document.getElementById("gate-title").textContent = "Choose a new password";
+  document.getElementById("gate-message").textContent = "This temporary password works once. Set a password only you know.";
+  const form = document.createElement("form");
+  form.className = "auth-form";
+  const current = field("password", "current", "Temporary password");
+  const next = field("password", "next", "New password");
+  next.autocomplete = "new-password";
+  next.minLength = 12;
+  const confirm = field("password", "confirm", "Confirm password");
+  confirm.autocomplete = "new-password";
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.textContent = "Save password";
+  const status = formStatus();
+  form.append(current, next, confirm, submit, status);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (next.value !== confirm.value) {
+      status.textContent = "Passwords do not match.";
+      return;
+    }
+    submit.disabled = true;
+    try {
+      await fetchJSON("/v1/auth/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current: current.value, next: next.value }),
+      });
+      window.location.href = "/";
+    } catch (err) {
+      status.textContent = err.message;
+      submit.disabled = false;
+    }
+  });
+  document.getElementById("gate-actions").replaceChildren(form);
+}
+
+function showConsole(session) {
+  currentAdmin = session.admin;
+  if (session.admin && session.admin.must_change_password) {
+    renderPasswordChange();
+    return;
+  }
+  document.getElementById("gate").classList.add("hidden");
+  document.getElementById("console").classList.remove("hidden");
+  document.getElementById("stats").classList.remove("hidden");
+  const account = document.getElementById("account");
+  account.classList.remove("hidden");
+  document.getElementById("account-label").textContent = adminLabel(session.admin);
+  if (window.location.pathname !== "/") {
+    window.history.replaceState({}, "", "/");
+  }
+  if (session.api_token) showToken(session.api_token);
+}
+
+async function renderAdmins() {
+  const panel = document.getElementById("admins-panel");
+  panel.classList.remove("hidden");
+  const data = await fetchJSON("/v1/admins");
+  panel.replaceChildren();
+  const heading = document.createElement("h2");
+  heading.textContent = "Admins";
+  panel.appendChild(heading);
+  const intro = document.createElement("p");
+  intro.className = "meta";
+  intro.textContent = "Every admin can run the console. Add another person by email. They get a temporary password and choose their own at the next sign-in.";
+  panel.appendChild(intro);
+
+  const list = document.createElement("ul");
+  (data.admins || []).forEach((admin) => {
+    const row = document.createElement("li");
+    row.className = "admin-row";
+    const label = document.createElement("span");
+    label.textContent = adminLabel(admin);
+    row.appendChild(label);
+    if ((data.admins || []).length > 1) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", () => removeAdmin(admin.id));
+      row.appendChild(remove);
+    }
+    list.appendChild(row);
+  });
+  panel.appendChild(list);
+
+  const form = document.createElement("form");
+  form.className = "invite-form";
+  const email = document.createElement("input");
+  email.type = "email";
+  email.required = true;
+  email.placeholder = "ada@example.com";
+  email.setAttribute("aria-label", "Email");
+  const send = document.createElement("button");
+  send.type = "submit";
+  send.textContent = "Add admin";
+  form.append(email, send);
+  const status = document.createElement("p");
+  status.className = "meta invite-status";
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    send.disabled = true;
+    try {
+      const created = await fetchJSON("/v1/admins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.value }),
+      });
+      status.textContent = created.emailed
+        ? `Temporary password emailed to ${created.email}. Copy it as well. It is shown once.`
+        : `Copy the temporary password for ${created.email}. It is shown once.`;
+      showToken(created.password, "Temporary password. Copy it now. It will not be shown again.");
+      email.value = "";
+    } catch (err) {
+      status.textContent = err.message;
+    } finally {
+      send.disabled = false;
+    }
+  });
+  panel.append(form, status);
+
+  const rotate = document.createElement("button");
+  rotate.type = "button";
+  rotate.textContent = "Rotate API token";
+  rotate.addEventListener("click", async () => {
+    rotate.disabled = true;
+    try {
+      const created = await fetchJSON("/v1/admins/token", { method: "POST" });
+      showToken(created.token);
+    } catch (err) {
+      showConsoleError(err);
+    } finally {
+      rotate.disabled = false;
+    }
+  });
+  panel.appendChild(rotate);
+}
+
+async function removeAdmin(id) {
+  const res = await fetch(`/v1/admins/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (res.status === 409) {
+    return;
+  }
+  if (!res.ok) throw new Error(await readError(res));
+  if (currentAdmin && currentAdmin.id === id) {
+    window.location.href = "/login";
+    return;
+  }
+  await renderAdmins();
 }
 
 function severityClass(level) {
@@ -383,15 +723,117 @@ document.getElementById("query-select").addEventListener("change", () => {
   refresh().catch(showConsoleError);
 });
 document.getElementById("rules-btn").addEventListener("click", runRules);
-document.getElementById("save-api-key-btn").addEventListener("click", () => {
-  saveAPIKey().catch(showConsoleError);
+document.getElementById("logout-btn").addEventListener("click", async () => {
+  await fetch("/v1/auth/logout", { method: "POST" });
+  window.location.href = "/login";
+});
+async function renderSecurity() {
+  const panel = document.getElementById("security-panel");
+  panel.classList.remove("hidden");
+  panel.replaceChildren();
+  const heading = document.createElement("h2");
+  heading.textContent = "Two-factor authentication";
+  const intro = document.createElement("p");
+  intro.className = "meta";
+  intro.textContent = currentAdmin && currentAdmin.totp_enabled
+    ? "An authenticator code is required at sign-in. Recovery codes were shown when you turned this on."
+    : "Optional. Use an authenticator app. Recovery codes are shown once when you turn this on.";
+  panel.append(heading, intro);
+  if (currentAdmin && currentAdmin.totp_enabled) {
+    const form = document.createElement("form");
+    form.className = "auth-form";
+    const password = field("password", "password", "Password");
+    const code = field("text", "code", "Authentication code");
+    const submit = document.createElement("button");
+    submit.type = "submit";
+    submit.textContent = "Turn off";
+    const status = formStatus();
+    form.append(password, code, submit, status);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        await fetchJSON("/v1/auth/totp/disable", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: password.value, code: code.value }),
+        });
+        currentAdmin.totp_enabled = false;
+        await renderSecurity();
+      } catch (err) {
+        status.textContent = err.message;
+      }
+    });
+    panel.appendChild(form);
+    return;
+  }
+  const start = document.createElement("button");
+  start.type = "button";
+  start.textContent = "Turn on";
+  const status = formStatus();
+  start.addEventListener("click", async () => {
+    start.disabled = true;
+    try {
+      const begun = await fetchJSON("/v1/auth/totp/setup", { method: "POST" });
+      const form = document.createElement("form");
+      form.className = "auth-form";
+      const secret = document.createElement("input");
+      secret.readOnly = true;
+      secret.value = begun.secret;
+      secret.setAttribute("aria-label", "Authenticator secret");
+      const code = field("text", "code", "Authentication code");
+      const submit = document.createElement("button");
+      submit.type = "submit";
+      submit.textContent = "Confirm";
+      form.append(secret, code, submit);
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const confirmed = await fetchJSON("/v1/auth/totp/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: code.value }),
+        });
+        currentAdmin.totp_enabled = true;
+        showToken((confirmed.recovery_codes || []).join("\n"), "Recovery codes. Copy them now. They will not be shown again.");
+        await renderSecurity();
+      });
+      panel.append(form, status);
+    } catch (err) {
+      status.textContent = err.message;
+      start.disabled = false;
+    }
+  });
+  panel.append(start, status);
+}
+
+document.getElementById("security-btn").addEventListener("click", () => {
+  const panel = document.getElementById("security-panel");
+  if (!panel.classList.contains("hidden")) {
+    panel.classList.add("hidden");
+    return;
+  }
+  renderSecurity().catch(showConsoleError);
+});
+document.getElementById("admins-btn").addEventListener("click", () => {
+  const panel = document.getElementById("admins-panel");
+  if (!panel.classList.contains("hidden")) {
+    panel.classList.add("hidden");
+    return;
+  }
+  renderAdmins().catch(showConsoleError);
 });
 
 (async function init() {
-  loadAPIKey();
+  localStorage.removeItem("om_api_key");
   try {
-    await loadConsole();
+    const session = await fetchJSON("/v1/auth/session");
+    if (session.authenticated) {
+      showConsole(session);
+      await loadConsole();
+      return;
+    }
+    renderGate(session);
   } catch (err) {
-    showConsoleError(err);
+    renderGate({ login_enabled: false, providers: [], needs_setup: false });
+    document.getElementById("gate-message").textContent = err.message;
   }
 })();

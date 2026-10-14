@@ -122,7 +122,11 @@ open http://localhost:8080
 
 The API image compiles `github.com/aws/aws-sdk-go-v2/service/ec2`. Give Docker at least 6 GiB of RAM.
 
-`.env.example` sets `OM_API_SECRET=change-me-in-production`, and Compose passes that into the API. In the console, paste that value into the API key field and click **Save API key**. The console then sends it as `X-API-Key` on every `/v1` call except health. Leave the secret empty to keep local API calls open.
+The console signs people in with an email and password. While no admin exists, the page asks you to create one. Keep the API port private until you do. Set `OM_ADMIN_EMAIL` when that first address should be fixed in advance. `om admin create --email you@example.com` does the same from the machine before the port is reachable.
+
+An admin adds the next person from the console. That person gets a temporary password, shown once, and chooses their own at the next sign-in. SMTP is optional; when it is set, the temporary password is emailed too. Google and GitHub buttons appear only when those client credentials are set, and the provider email must match an existing admin. Every console account is an admin. Two-factor authentication is optional per admin.
+
+Each admin gets a personal API token, shown once in the console. Collectors, CI, and `curl` send it as `Authorization: Bearer` or `X-API-Key` on every `/v1` call except health, the session probe, and logout. The CLI talks to Postgres and does not use the token. A token cannot add or remove admins.
 
 **API endpoints:** `GET /v1/health`, `POST /v1/ingest`, `GET /v1/findings`, `GET /v1/graph/snapshot`, `POST /v1/rules/run`, `GET /v1/identity/blast-radius`
 
@@ -142,11 +146,10 @@ The CLI does not read `.env`. It defaults `POSTGRES_HOST` to `localhost`, which 
 **Kubernetes:**
 
 ```bash
-docker build -t ghcr.io/opensourceom/core:0.3.0 .
+docker build -t ghcr.io/opensourceom/core:0.4.0 .
 helm install om deploy/helm/opensourceom \
-  --set api.secret='change-me' \
   --set postgres.password='change-me' \
-  --set image.tag=0.3.0
+  --set image.tag=0.4.0
 ```
 
 Collectors stay off until you enable one and supply credentials, an existing Secret, or `serviceAccountAuth`. The CronJob runs `om scan` against the same Postgres the API reads. `om scan demo` stays a one-shot command. See `scan` in `deploy/helm/opensourceom/values.yaml`.
