@@ -74,8 +74,8 @@ github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.6 h1:FpBq24TG6WVSObTNhQO
 github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.6/go.mod h1:ONzdPVYC95oBOu0VWNEsKEntcoemP3xVKjT+qWml1s4=
 github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.6 h1:Qmn60RWuk9+bd2ddvJJqwf3Cpac3VvGMOdbGemtUhX4=
 github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.6/go.mod h1:h/YJhe4AVyQxEUMluph10iqV7mjajH7A9L+BHF5ppis=
-github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.65.1 h1:7l3q63iLAxFRN2NxczNTfwKsqMJIyHfAOo69Sl6zmy8=
-github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.65.1/go.mod h1:2kH5YUhglK8vConk6i8G3Kdo8C+7MKSxpaL7flMYF5w=
+github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.65.4 h1:X+AYJ7DKcCpvq2dnY4oNPlL6NqMga+aLq3V7Ei8bAeU=
+github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.65.4/go.mod h1:VU2PgU7YTdvw3xr65f7PWgCT2oWNIBZE7zj2M5rW2Ic=
 github.com/aws/aws-sdk-go-v2/service/ec2 v1.338.1 h1:sfwX4gbR9CGsMgBsOQNFMGigRjiZeIG0CF4BlWP/LBQ=
 github.com/aws/aws-sdk-go-v2/service/ec2 v1.338.1/go.mod h1:d0e0acsyS3WnFCFJiByGwnUgPpn2wAk97PTIksHN2NI=
 github.com/aws/aws-sdk-go-v2/service/iam v1.64.4 h1:28xB3Sghdz+BOBpar3ksuZ6vdoGRxmcgowF/TRxvgsI=
@@ -88,8 +88,8 @@ github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.6 h1:LHHdobjo5
 github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.6/go.mod h1:CBGB0evAiaMD3Lk4wPO7LQCcCZLuhzL5Qf/wfEUHQ5w=
 github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.6 h1:mYViDr2azcgxOpRrObZOl631bvavqILoE/L+Kxgbwys=
 github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.6/go.mod h1:OXVdAo9jNhggB+hJRGOyy7WolGTKB6Rg7IIulDeSzPM=
-github.com/aws/aws-sdk-go-v2/service/rds v1.130.0 h1:d6xg7OOvlly1HOTXoAqDnttPaEB37KEsmMk5dVz+V8U=
-github.com/aws/aws-sdk-go-v2/service/rds v1.130.0/go.mod h1:ISB8224E71TShRfUITcXvgbjlq0MVx/KWpvF0jbiFmg=
+github.com/aws/aws-sdk-go-v2/service/rds v1.130.3 h1:/r/iLO6C3fZt8h10+YT4ID2R//JD6q7k9P/7f8AsN+A=
+github.com/aws/aws-sdk-go-v2/service/rds v1.130.3/go.mod h1:kINuLzcAGKKdpwsN4A24D3y0gAVJDrN4/dGfkJeq9JE=
 github.com/aws/aws-sdk-go-v2/service/s3 v1.114.3 h1:NyeuyXkZL476uoAowNActm4XJO1QPKf7aassgXHpiqA=
 github.com/aws/aws-sdk-go-v2/service/s3 v1.114.3/go.mod h1:GfoBeKMDJecgRUsGf/0RGdx0NJAh81ObTd922h8pQys=
 github.com/aws/aws-sdk-go-v2/service/signin v1.10.1 h1:DzCCWLzcIRQ77F3DEUljud7bEjTgFOIKXP52NmVRyhU=
