@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Architecture
 
-> **Status:** Phase 3 has shipped. The collector plugin SDK, Helm, the embedded rule pack, and cloud audit context from CloudTrail, Activity Log, and Admin Activity logs are in the tree, alongside Phase 2 CSPM rules, blast radius, Kubernetes ingest, and exports. Further rule packs stay open for contributors.
+> **Status:** Phase 3 has shipped. The collector plugin SDK, Helm, the embedded rule pack, and cloud audit context from CloudTrail, Activity Log, and Admin Activity logs are in the tree, alongside Phase 2 CSPM rules, blast radius, Kubernetes ingest, and exports. Phase 4 (package inventory from persistent workload storage) and Phase 5 (secret and malware findings on that storage) are open. Further rule packs stay open for contributors.
 
 ## Overview
 
@@ -82,6 +82,12 @@ Shipped, in this order:
 
 Further community rule packs (PCI and additional CIS mappings) stay open for contributors ([#10](https://github.com/OpenSourceOM/core/issues/10)).
 
-Issue links: [ROADMAP.md](./ROADMAP.md)
+## Phase 4 and Phase 5
+
+Planned, not in the tree. Phase 4 writes `packages` (CPE 2.3 names and package URLs) from persistent workload storage onto the workload node that enrichment already matches. The sources, in order, are AWS Linux root volumes, Azure VM and GCE root volumes, boot images, container image layers and function bundles, and shared filesystems (EFS, Azure Files, Filestore). The scan is opt-in. `om scan aws`, `om scan azure`, and `om scan gcp` stay read-only API collectors. The workload scan runs a worker in the account, and it stores package identifiers only.
+
+Phase 5 adds a finding for a secret pattern or a malware signature on storage that Phase 4 reader already opened. The finding stores the kind and the path. Object bodies and database rows are in neither phase.
+
+Issue links: [ROADMAP.md](./ROADMAP.md) ([#102](https://github.com/OpenSourceOM/core/issues/102) through [#108](https://github.com/OpenSourceOM/core/issues/108)).
 
 See the [website architecture page](https://opensourceom.org/docs/architecture/) for user-facing documentation.

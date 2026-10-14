@@ -21,7 +21,7 @@ OpenSourceOM Core is the platform behind [opensourceom.org](https://opensourceom
 
 Traditional scanners flood you with CVEs and misconfigurations. OpenSourceOM connects the dots — showing which findings sit on paths from the internet to your sensitive data and privileged identities.
 
-> **Status:** Phase 3 has shipped. Further rule packs stay open for contributors ([#10](https://github.com/OpenSourceOM/core/issues/10)). See the [roadmap](./docs/ROADMAP.md).
+> **Status:** Phase 3 has shipped. Phase 4 (workload package inventory) and Phase 5 (secret and malware findings on that storage) are open. Further rule packs stay open for contributors ([#10](https://github.com/OpenSourceOM/core/issues/10)). See the [roadmap](./docs/ROADMAP.md).
 
 ## Why this exists
 
@@ -162,6 +162,8 @@ Full documentation: [opensourceom.org](https://opensourceom.org) (docs at [opens
 | **1** | Attack path queries, CVE enrichment, web UI, Azure/GCP collectors |
 | **2** | CSPM rules, blast radius, K8s connector, exports |
 | **3** | Plugin SDK, Helm, embedded rule pack, demo graph, inventory-backed CVEs, crown-jewel datastores, attack-path findings, and cloud audit context (CloudTrail, Activity Log, Admin Activity). Shipped. |
+| **4** | Package inventory from persistent workload storage: root volumes, boot images, container layers, function bundles, shared filesystems. Open. |
+| **5** | Secret and malware findings on storage Phase 4 already opens. Kind and path only. Open. |
 
 Details: [docs/ROADMAP.md](./docs/ROADMAP.md)
 

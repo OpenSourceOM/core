@@ -24,7 +24,7 @@ On a PR you can comment `@coderabbitai review` (incremental) or `@coderabbitai f
 
 ## Development guidelines
 
-- Keep collectors **read-only** toward cloud accounts by default
+- Keep collectors **read-only** toward cloud accounts by default. The Phase 4 workload scan is the opt-in exception: it may create and delete snapshots in the account, and it stores package identifiers only
 - Document graph schema changes in `docs/`
 - Prefer small, reviewable PRs
 - Add tests for graph queries and normalization logic
