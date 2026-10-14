@@ -24,13 +24,78 @@ header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
   padding: 1.25rem 1.5rem;
   border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 2;
 }
 header h1 { margin: 0; font-size: 1.4rem; }
 .tagline { margin: 0.25rem 0 0; color: var(--muted); }
-.account { display: flex; align-items: center; gap: 0.6rem; color: var(--muted); }
+.account {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-left: auto;
+  max-width: 100%;
+  color: var(--muted);
+}
+#account-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings { position: relative; }
+#settings-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+#settings-btn .chevron {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-1px) rotate(45deg);
+}
+#settings-btn[aria-expanded="true"] { border-color: var(--accent); }
+#settings-btn[aria-expanded="true"] .chevron { transform: translateY(2px) rotate(225deg); }
+.settings-menu {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  z-index: 3;
+  min-width: 13rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.35rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+.account .settings-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+  white-space: nowrap;
+}
+.account .settings-menu button:hover,
+.account .settings-menu button:focus-visible { background: #1a2440; }
+.settings-sep {
+  height: 1px;
+  margin: 0.25rem 0.45rem;
+  background: var(--border);
+}
 .hidden { display: none; }
 
 .gate {
@@ -232,6 +297,7 @@ h2 { margin: 0 0 0.75rem; font-size: 1rem; }
 #account.hidden,
 #admins-panel.hidden,
 #security-panel.hidden,
-#token-banner.hidden {
+#token-banner.hidden,
+#settings-menu.hidden {
   display: none;
 }

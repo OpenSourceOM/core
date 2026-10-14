@@ -15,10 +15,19 @@
     </div>
     <div id="account" class="account hidden">
       <span id="account-label"></span>
-      <button id="token-btn" type="button">Create API token</button>
-      <button id="security-btn" type="button">Security</button>
-      <button id="admins-btn" type="button">Admins</button>
-      <button id="logout-btn" type="button">Log out</button>
+      <div class="settings">
+        <button id="settings-btn" type="button" aria-expanded="false" aria-controls="settings-menu" aria-haspopup="true">
+          Settings
+          <span class="chevron" aria-hidden="true"></span>
+        </button>
+        <div id="settings-menu" class="settings-menu hidden">
+          <button id="token-btn" type="button">Create API token</button>
+          <button id="security-btn" type="button">Security</button>
+          <button id="admins-btn" type="button">Admins</button>
+          <div class="settings-sep" role="separator"></div>
+          <button id="logout-btn" type="button">Log out</button>
+        </div>
+      </div>
     </div>
   </header>
 
