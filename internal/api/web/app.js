@@ -54,6 +54,7 @@ async function runRules() {
 async function readError(res) {
   try {
     const body = await res.json();
+    if (body && body.code === "schema_not_ready") res.schemaNotReady = true;
     if (body && body.error) return body.error;
   } catch (err) {
     return `request returned ${res.status}`;
@@ -66,6 +67,7 @@ async function fetchJSON(path, options) {
   if (!res.ok) {
     const error = new Error(await readError(res));
     error.status = res.status;
+    if (res.schemaNotReady) error.schemaNotReady = true;
     throw error;
   }
   if (res.status === 204) return null;
@@ -77,6 +79,12 @@ function isUnauthorized(err) {
 }
 
 function showConsoleError(err) {
+  if (err && err.schemaNotReady) {
+    const banner = document.getElementById("console-error");
+    banner.textContent = err.message;
+    banner.classList.remove("hidden");
+    return;
+  }
   if (isUnauthorized(err)) {
     fetchJSON("/v1/auth/session").then((session) => {
       renderGate(session);
