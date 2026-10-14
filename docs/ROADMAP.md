@@ -58,9 +58,38 @@ The path, in order:
 
 The ordered path above is complete.
 
-## After Phase 3
+## Phase 4 — Workload inventory
 
-[#10](https://github.com/OpenSourceOM/core/issues/10) stays open for a contributor who wants another rule pack (PCI and additional CIS mappings). It does not reopen Phase 3.
+Phase 4 is open. Cloud collectors record the VM, its exposure, and its identity. They do not record the packages installed on it. `om enrich cve` already writes a finding when `packages` on a workload matches. This phase fills that property from persistent workload storage.
+
+The phase ends when a package found in that storage is a CVE finding on the workload the graph already stores. A block volume is the first source. Boot images, container image layers, function bundles, and shared filesystems are the rest.
+
+The scan is opt-in and separate from `om scan aws`, `om scan azure`, and `om scan gcp`. Those commands stay read-only. The workload scan runs a worker in the account and region, reads package metadata, and writes CPE 2.3 names and package URLs onto the existing workload. Snapshots and mounts are removed when the scan finishes, including when it fails. File contents stay on the storage.
+
+The path, in order:
+
+- [ ] **AWS Linux root volumes** — [#102](https://github.com/OpenSourceOM/core/issues/102)
+- [ ] **Azure VM and GCE root volumes** — the same walker, those snapshot APIs — [#103](https://github.com/OpenSourceOM/core/issues/103)
+- [ ] **Boot images** — an AMI and the Azure and GCE equivalents, scanned once and applied to instances launched from that image — [#104](https://github.com/OpenSourceOM/core/issues/104)
+- [ ] **Container image layers and function bundles** — layers for images already stored on Kubernetes workloads, plus Lambda deployment packages and the Azure and GCP equivalents. No volume attach — [#105](https://github.com/OpenSourceOM/core/issues/105)
+- [ ] **Shared filesystems** — EFS, Azure Files, and Filestore, when the application is installed there and a root-volume scan would miss it — [#106](https://github.com/OpenSourceOM/core/issues/106)
+
+Object bodies and database rows stay out. They are customer data, not the installed software. A public bucket or database is already an exposure finding from the API scan.
+
+## Phase 5 — Findings on inventoried storage
+
+Phase 5 starts after a Phase 4 reader has opened that storage. A secret pattern or a malware signature found there becomes a finding on the same workload. The graph stores the kind and the path. It does not store the secret or the file. The finding then ranks with the other findings on an internet-reachable workload.
+
+The path, in order:
+
+- [ ] **Secrets** — kind and path only — [#107](https://github.com/OpenSourceOM/core/issues/107)
+- [ ] **Malware** — signature name and path only — [#108](https://github.com/OpenSourceOM/core/issues/108)
+
+Object bodies and database rows stay out of this phase as well.
+
+## Alongside the phases
+
+[#10](https://github.com/OpenSourceOM/core/issues/10) stays open for a contributor who wants another rule pack (PCI and additional CIS mappings). It does not reopen Phase 3, and it is not Phase 4 or Phase 5.
 
 ## Open source vs. commercial
 
@@ -75,10 +104,13 @@ The free OSS core focuses on **defending against external attackers** — unders
 | Console admins via Google or GitHub login | Viewer and other non-admin roles |
 | Community collectors and rule packs | Enterprise compliance workflows |
 | Cloud audit ingest as graph context | Immutable platform audit logs (who used OpenSourceOM) |
+| Workload package inventory (Phase 4) and secret or malware findings on that storage (Phase 5) | Classification of object bodies and database rows |
 
 Console login in the OSS core is email and password. Google and GitHub are optional. The first account is created from the setup form or `om admin create`, and later admins get a temporary password. Every signed-in account is an admin. A personal API token for scripts is created only when that admin asks for one. Bring-your-own identity providers stay commercial.
 
 Cloud provider audit APIs (for example CloudTrail) are Phase 3 graph context ([#33](https://github.com/OpenSourceOM/core/issues/33)): evidence of exposure and attack paths. **Platform audit logs** — operator actions in the console/API, SSO identity, retention, and auditor export — belong in the commercial offering.
+
+Phase 4 and Phase 5 stay in the open-source core: which packages, secrets, and malware sit on storage an outsider can reach. Classification of object bodies and database rows belongs with the commercial offering.
 
 This split keeps the OSS project useful for any team that needs graph-native **external** risk prioritization, while commercial offerings can address **internal** risk and enterprise deployment needs without bloating the core repo.
 
