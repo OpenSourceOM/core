@@ -133,6 +133,7 @@ function showSignedOut(message) {
   document.getElementById("console").classList.add("hidden");
   document.getElementById("stats").classList.add("hidden");
   document.getElementById("account").classList.add("hidden");
+  setSettingsOpen(false);
   document.getElementById("admins-panel").classList.add("hidden");
   document.getElementById("security-panel").classList.add("hidden");
   document.getElementById("token-banner").classList.add("hidden");
@@ -813,12 +814,42 @@ document.getElementById("query-select").addEventListener("change", () => {
   refresh().catch(showConsoleError);
 });
 document.getElementById("rules-btn").addEventListener("click", runRules);
+
+function setSettingsOpen(open) {
+  const menu = document.getElementById("settings-menu");
+  const button = document.getElementById("settings-btn");
+  menu.classList.toggle("hidden", !open);
+  button.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function closeSettingsMenu() {
+  const button = document.getElementById("settings-btn");
+  if (button.getAttribute("aria-expanded") !== "true") return;
+  setSettingsOpen(false);
+  button.focus();
+}
+
+document.getElementById("settings-btn").addEventListener("click", () => {
+  const open = document.getElementById("settings-btn").getAttribute("aria-expanded") === "true";
+  setSettingsOpen(!open);
+});
+document.addEventListener("click", (event) => {
+  if (event.target.closest(".settings")) return;
+  if (document.getElementById("settings-btn").getAttribute("aria-expanded") !== "true") return;
+  setSettingsOpen(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  closeSettingsMenu();
+});
+
 document.getElementById("token-btn").addEventListener("click", async () => {
   const button = document.getElementById("token-btn");
   const has = Boolean(currentAdmin && currentAdmin.has_api_token);
   if (has && !window.confirm("Replace the current API token? Scripts using it will stop working.")) {
     return;
   }
+  closeSettingsMenu();
   button.disabled = true;
   try {
     const created = await fetchJSON(has ? "/v1/admins/token/rotate" : "/v1/admins/token", { method: "POST" });
@@ -838,6 +869,7 @@ document.getElementById("token-dismiss").addEventListener("click", () => {
   document.getElementById("token-banner").classList.add("hidden");
 });
 document.getElementById("logout-btn").addEventListener("click", async () => {
+  closeSettingsMenu();
   await fetch("/v1/auth/logout", { method: "POST" });
   window.location.href = "/login";
 });
@@ -920,6 +952,7 @@ async function renderSecurity() {
 }
 
 document.getElementById("security-btn").addEventListener("click", () => {
+  closeSettingsMenu();
   const panel = document.getElementById("security-panel");
   if (!panel.classList.contains("hidden")) {
     panel.classList.add("hidden");
@@ -928,6 +961,7 @@ document.getElementById("security-btn").addEventListener("click", () => {
   renderSecurity().catch(showConsoleError);
 });
 document.getElementById("admins-btn").addEventListener("click", () => {
+  closeSettingsMenu();
   const panel = document.getElementById("admins-panel");
   if (!panel.classList.contains("hidden")) {
     panel.classList.add("hidden");
