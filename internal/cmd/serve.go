@@ -20,6 +20,9 @@ var serveCmd = &cobra.Command{
 	Short: "Start the HTTP API server",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := loadConfig()
+		if err := applyMigrations(cmd.Context(), cfg); err != nil {
+			return err
+		}
 		store, err := openGraphStore(cmd.Context(), cfg)
 		if err != nil {
 			return err
@@ -47,6 +50,28 @@ var serveCmd = &cobra.Command{
 		addr := fmt.Sprintf(":%d", cfg.APIPort)
 		return server.ListenAndServe(addr)
 	},
+}
+
+func applyMigrations(ctx context.Context, cfg config.Config) error {
+	auto, err := config.ServeAutoMigrate()
+	if err != nil {
+		return err
+	}
+	if !auto {
+		log.Printf("skipping database migrations because OM_AUTO_MIGRATE is false")
+		return nil
+	}
+
+	applied, err := runMigrations(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("apply database migrations: %w", err)
+	}
+	if len(applied) == 0 {
+		log.Printf("database schema is current")
+		return nil
+	}
+	log.Printf("applied database migrations: %s", strings.Join(applied, ", "))
+	return nil
 }
 
 func warnOAuthConfig(cfg config.Config) {

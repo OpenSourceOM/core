@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -89,6 +90,20 @@ func Load() Config {
 		JiraAPIToken:        getEnv("JIRA_API_TOKEN", ""),
 		JiraProject:         getEnv("JIRA_PROJECT", ""),
 	}
+}
+
+// ServeAutoMigrate reports whether om serve applies pending migrations before it listens.
+// An unset or empty OM_AUTO_MIGRATE means yes. A present value must be a boolean.
+func ServeAutoMigrate() (bool, error) {
+	raw, ok := os.LookupEnv("OM_AUTO_MIGRATE")
+	if !ok || strings.TrimSpace(raw) == "" {
+		return true, nil
+	}
+	value, err := strconv.ParseBool(strings.TrimSpace(raw))
+	if err != nil {
+		return false, fmt.Errorf("OM_AUTO_MIGRATE=%q is not a boolean", raw)
+	}
+	return value, nil
 }
 
 func getEnv(key, fallback string) string {

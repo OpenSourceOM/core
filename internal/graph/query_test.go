@@ -418,7 +418,7 @@ func openQueryFixture(t *testing.T) *graph.Store {
 	}
 	databaseURL.Path = "/" + dbName
 
-	if err := migrate.Run(ctx, databaseURL.String(), migrationsDir(t)); err != nil {
+	if _, err := migrate.Run(ctx, databaseURL.String(), migrationsDir(t)); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	store, err := graph.NewStore(ctx, databaseURL.String())

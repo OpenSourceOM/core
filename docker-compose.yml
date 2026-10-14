@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Local dev stack: Postgres + API
 # Usage: cp .env.example .env && docker compose up -d
+# The API applies pending migrations when it starts.
 # The API image compiles aws-sdk-go-v2/service/ec2. Docker needs at least 6 GiB of RAM.
 
 services:
@@ -30,6 +31,7 @@ services:
     environment:
       OM_ENV: ${OM_ENV:-development}
       OM_API_PORT: 8080
+      OM_AUTO_MIGRATE: ${OM_AUTO_MIGRATE:-true}
       OM_PUBLIC_URL: ${OM_PUBLIC_URL:-http://localhost:8080}
       OM_ADMIN_EMAIL: ${OM_ADMIN_EMAIL:-}
       OM_GOOGLE_CLIENT_ID: ${OM_GOOGLE_CLIENT_ID:-}

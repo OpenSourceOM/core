@@ -11,33 +11,47 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 )
 
-func Run(ctx context.Context, databaseURL, migrationsDir string) error {
-	pool, err := pgxpool.New(ctx, databaseURL)
+// lockSQL is a session advisory lock so two processes cannot apply the same file.
+// The Helm init container and om serve can both call Run against one database.
+const (
+	lockSQL   = `SELECT pg_advisory_lock(hashtext('opensourceom.migrate'))`
+	unlockSQL = `SELECT pg_advisory_unlock(hashtext('opensourceom.migrate'))`
+)
+
+// Run applies pending SQL migrations. Applied versions are skipped.
+// Each file and its schema_migrations row commit together.
+// The returned names are the versions applied by this call.
+func Run(ctx context.Context, databaseURL, migrationsDir string) ([]string, error) {
+	conn, err := pgx.Connect(ctx, databaseURL)
 	if err != nil {
-		return fmt.Errorf("connect postgres: %w", err)
+		return nil, fmt.Errorf("connect postgres: %w", err)
 	}
-	defer pool.Close()
+	defer conn.Close(context.Background())
 
-	if err := pool.Ping(ctx); err != nil {
-		return fmt.Errorf("ping postgres: %w", err)
+	if err := conn.Ping(ctx); err != nil {
+		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 
-	_, err = pool.Exec(ctx, `
+	if _, err := conn.Exec(ctx, lockSQL); err != nil {
+		return nil, fmt.Errorf("lock migrations: %w", err)
+	}
+	defer conn.Exec(context.Background(), unlockSQL)
+
+	if _, err := conn.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version TEXT PRIMARY KEY,
 			applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		)
-	`)
-	if err != nil {
-		return err
+	`); err != nil {
+		return nil, err
 	}
 
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
-		return fmt.Errorf("read migrations dir: %w", err)
+		return nil, fmt.Errorf("read migrations dir: %w", err)
 	}
 
 	var files []string
@@ -49,11 +63,12 @@ func Run(ctx context.Context, databaseURL, migrationsDir string) error {
 	}
 	sort.Strings(files)
 
+	var applied []string
 	for _, file := range files {
 		version := strings.TrimSuffix(file, ".sql")
 		var exists bool
-		if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = $1)`, version).Scan(&exists); err != nil {
-			return err
+		if err := conn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = $1)`, version).Scan(&exists); err != nil {
+			return nil, err
 		}
 		if exists {
 			continue
@@ -61,17 +76,33 @@ func Run(ctx context.Context, databaseURL, migrationsDir string) error {
 
 		sqlBytes, err := os.ReadFile(filepath.Join(migrationsDir, file))
 		if err != nil {
-			return err
+			return nil, err
 		}
-
-		if _, err := pool.Exec(ctx, string(sqlBytes)); err != nil {
-			return fmt.Errorf("apply migration %s: %w", file, err)
+		if err := applyFile(ctx, conn, version, string(sqlBytes)); err != nil {
+			return nil, err
 		}
-
-		if _, err := pool.Exec(ctx, `INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING`, version); err != nil {
-			return err
-		}
+		applied = append(applied, version)
 	}
 
+	return applied, nil
+}
+
+// applyFile runs the file and records its version as one simple-protocol batch.
+// Postgres treats that batch as a single transaction, so a failed statement
+// leaves neither the schema change nor the version row.
+func applyFile(ctx context.Context, conn *pgx.Conn, version, sqlText string) error {
+	statement := strings.TrimSpace(sqlText)
+	if statement != "" && !strings.HasSuffix(statement, ";") {
+		statement += ";"
+	}
+	statement += "\nINSERT INTO schema_migrations (version) VALUES (" + quoteLiteral(version) + ") ON CONFLICT DO NOTHING;"
+
+	if _, err := conn.Exec(ctx, statement); err != nil {
+		return fmt.Errorf("apply migration %s: %w", version, err)
+	}
 	return nil
+}
+
+func quoteLiteral(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }

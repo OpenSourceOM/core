@@ -173,7 +173,7 @@ func openBlastRadiusStore(t *testing.T) *graph.Store {
 	}
 	databaseURL.Path = "/" + dbName
 
-	if err := migrate.Run(ctx, databaseURL.String(), blastRadiusMigrationsDir(t)); err != nil {
+	if _, err := migrate.Run(ctx, databaseURL.String(), blastRadiusMigrationsDir(t)); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	store, err := graph.NewStore(ctx, databaseURL.String())

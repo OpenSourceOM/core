@@ -14,8 +14,16 @@ var migrateCmd = &cobra.Command{
 	Short: "Apply database migrations",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := loadConfig()
-		if err := runMigrations(cmd.Context(), cfg); err != nil {
+		applied, err := runMigrations(cmd.Context(), cfg)
+		if err != nil {
 			return err
+		}
+		if len(applied) == 0 {
+			fmt.Println("Database schema is current.")
+			return nil
+		}
+		for _, version := range applied {
+			fmt.Printf("applied %s\n", version)
 		}
 		fmt.Println("Migrations applied.")
 		return nil

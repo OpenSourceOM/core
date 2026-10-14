@@ -67,8 +67,8 @@ See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings
 
 ## Deployment
 
-- **Dev:** Docker Compose — Postgres + API (`docker compose up -d`); CLI can also target Postgres directly
-- **Prod:** Helm chart in `deploy/helm/opensourceom/` (API, optional Postgres, optional scheduled collectors)
+- **Dev:** Docker Compose — Postgres + API (`docker compose up -d`). `om serve` applies pending migrations before it listens. The CLI can also target Postgres directly; `om migrate` is the schema step when the API is not running.
+- **Prod:** Helm chart in `deploy/helm/opensourceom/` (API, optional Postgres, optional scheduled collectors). An init container runs `om migrate`, then the main container runs `om serve`, which applies any still-pending files unless `OM_AUTO_MIGRATE=false`.
 
 ## Phase 3
 

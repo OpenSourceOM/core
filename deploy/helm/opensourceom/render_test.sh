@@ -53,6 +53,10 @@ helm lint "$chart" "${base[@]}"
 
 render default
 assert_absent "$workdir/default.yaml" "OM_API_SECRET" "default install still set a shared API secret"
+if ! grep -A1 'name: OM_AUTO_MIGRATE' "$workdir/default.yaml" | grep -q 'value: "true"'; then
+  echo "API container does not apply migrations on startup" >&2
+  exit 1
+fi
 assert_absent "$workdir/default.yaml" "kind: CronJob" "default install created a CronJob"
 assert_absent "$workdir/default.yaml" "kind: ClusterRole$" "default install created scan RBAC"
 assert_absent "$workdir/default.yaml" "- demo" "default install scheduled the demo scan"
