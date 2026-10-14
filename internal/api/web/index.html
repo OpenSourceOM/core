@@ -15,6 +15,7 @@
     </div>
     <div id="account" class="account hidden">
       <span id="account-label"></span>
+      <button id="token-btn" type="button">Create API token</button>
       <button id="security-btn" type="button">Security</button>
       <button id="admins-btn" type="button">Admins</button>
       <button id="logout-btn" type="button">Log out</button>
@@ -28,8 +29,9 @@
   </section>
 
   <section id="token-banner" class="token-banner hidden" role="status">
-    <p>This is your API token. Copy it now. It will not be shown again.</p>
-    <input id="token-value" readonly aria-label="API token" />
+    <p>This API token is for scripts. Copy it now. It will not be shown again.</p>
+    <input id="token-value" readonly aria-label="Secret" />
+    <button id="token-dismiss" type="button">Dismiss</button>
   </section>
   <section id="security-panel" class="admins hidden"></section>
   <section id="admins-panel" class="admins hidden"></section>

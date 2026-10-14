@@ -51,8 +51,23 @@ func TestConsoleLoginCreatesAdminSession(t *testing.T) {
 	sessionProbe.AddCookie(session)
 	sessionRec := httptest.NewRecorder()
 	handler.ServeHTTP(sessionRec, sessionProbe)
-	if sessionRec.Code != http.StatusOK || !strings.Contains(sessionRec.Body.String(), `"api_token"`) {
+	if sessionRec.Code != http.StatusOK || strings.Contains(sessionRec.Body.String(), `"api_token"`) || !strings.Contains(sessionRec.Body.String(), `"has_api_token":false`) {
 		t.Fatalf("session = %d %s", sessionRec.Code, sessionRec.Body.String())
+	}
+
+	createToken := httptest.NewRequest(http.MethodPost, "/v1/admins/token", nil)
+	createToken.AddCookie(session)
+	createTokenRec := httptest.NewRecorder()
+	handler.ServeHTTP(createTokenRec, createToken)
+	if createTokenRec.Code != http.StatusCreated || !strings.Contains(createTokenRec.Body.String(), `"token":"personal-token"`) {
+		t.Fatalf("create token = %d %s", createTokenRec.Code, createTokenRec.Body.String())
+	}
+	againToken := httptest.NewRequest(http.MethodPost, "/v1/admins/token", nil)
+	againToken.AddCookie(session)
+	againTokenRec := httptest.NewRecorder()
+	handler.ServeHTTP(againTokenRec, againToken)
+	if againTokenRec.Code != http.StatusConflict {
+		t.Fatalf("second token = %d %s", againTokenRec.Code, againTokenRec.Body.String())
 	}
 
 	keyOnly := httptest.NewRequest(http.MethodPost, "/v1/admins", strings.NewReader(`{"email":"next@example.com"}`))
@@ -69,6 +84,21 @@ func TestConsoleLoginCreatesAdminSession(t *testing.T) {
 	handler.ServeHTTP(rulesTokenRec, rulesToken)
 	if rulesTokenRec.Code != http.StatusOK {
 		t.Fatalf("token rules status = %d", rulesTokenRec.Code)
+	}
+
+	rotateToken := httptest.NewRequest(http.MethodPost, "/v1/admins/token/rotate", nil)
+	rotateToken.AddCookie(session)
+	rotateTokenRec := httptest.NewRecorder()
+	handler.ServeHTTP(rotateTokenRec, rotateToken)
+	if rotateTokenRec.Code != http.StatusOK || !strings.Contains(rotateTokenRec.Body.String(), `"token":"rotated-token"`) {
+		t.Fatalf("rotate token = %d %s", rotateTokenRec.Code, rotateTokenRec.Body.String())
+	}
+	oldToken := httptest.NewRequest(http.MethodGet, "/v1/rules", nil)
+	oldToken.Header.Set("X-API-Key", "personal-token")
+	oldTokenRec := httptest.NewRecorder()
+	handler.ServeHTTP(oldTokenRec, oldToken)
+	if oldTokenRec.Code != http.StatusUnauthorized {
+		t.Fatalf("old token status = %d", oldTokenRec.Code)
 	}
 
 	invite := httptest.NewRequest(http.MethodPost, "/v1/admins", strings.NewReader(`{"email":"next@example.com"}`))
@@ -262,7 +292,6 @@ type memoryDirectory struct {
 	invites    map[string]memoryInvite
 	sessions   map[string]string
 	tokens     map[string]string
-	previews   map[string]string
 	passwords  map[string]string
 	challenges map[string]string
 	resets     map[string]memoryReset
@@ -285,7 +314,6 @@ func newMemoryDirectory() *memoryDirectory {
 		invites:    map[string]memoryInvite{},
 		sessions:   map[string]string{},
 		tokens:     map[string]string{},
-		previews:   map[string]string{},
 		passwords:  map[string]string{},
 		challenges: map[string]string{},
 		resets:     map[string]memoryReset{},
@@ -445,9 +473,6 @@ func (d *memoryDirectory) Bootstrap(_ context.Context, identity auth.Identity) (
 		Email:    identity.Emails[0],
 	}
 	d.admins = append(d.admins, admin)
-	d.plainToken = "personal-token"
-	d.tokens[auth.HashToken(d.plainToken)] = admin.ID
-	d.previews[admin.ID] = d.plainToken
 	return admin, nil
 }
 
@@ -466,17 +491,63 @@ func (d *memoryDirectory) AdminForToken(_ context.Context, token string) (auth.A
 	return auth.Admin{}, auth.ErrNotFound
 }
 
-func (d *memoryDirectory) TakeTokenPreview(_ context.Context, adminID string) (string, error) {
+func (d *memoryDirectory) HasToken(_ context.Context, adminID string) (bool, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	preview := d.previews[adminID]
-	delete(d.previews, adminID)
-	return preview, nil
+	for _, id := range d.tokens {
+		if id == adminID {
+			return true, nil
+		}
+	}
+	for _, admin := range d.admins {
+		if admin.ID == adminID {
+			return false, nil
+		}
+	}
+	return false, auth.ErrNotFound
+}
+
+func (d *memoryDirectory) CreateToken(_ context.Context, adminID string) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	found := false
+	for _, admin := range d.admins {
+		if admin.ID == adminID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return "", auth.ErrNotFound
+	}
+	for _, id := range d.tokens {
+		if id == adminID {
+			return "", auth.ErrTokenExists
+		}
+	}
+	d.plainToken = "personal-token"
+	d.tokens[auth.HashToken(d.plainToken)] = adminID
+	return d.plainToken, nil
 }
 
 func (d *memoryDirectory) RotateToken(_ context.Context, adminID string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	found := false
+	for _, admin := range d.admins {
+		if admin.ID == adminID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return "", auth.ErrNotFound
+	}
+	for hash, id := range d.tokens {
+		if id == adminID {
+			delete(d.tokens, hash)
+		}
+	}
 	d.plainToken = "rotated-token"
 	d.tokens[auth.HashToken(d.plainToken)] = adminID
 	return d.plainToken, nil
@@ -567,9 +638,6 @@ func (d *memoryDirectory) SetupAdmin(_ context.Context, email, password, pinned 
 	admin := auth.Admin{ID: "admin-created", Provider: auth.ProviderPassword, Subject: email, Login: email, Email: email}
 	d.admins = append(d.admins, admin)
 	d.passwords[email] = password
-	d.plainToken = "personal-token"
-	d.tokens[auth.HashToken(d.plainToken)] = admin.ID
-	d.previews[admin.ID] = d.plainToken
 	return admin, nil
 }
 

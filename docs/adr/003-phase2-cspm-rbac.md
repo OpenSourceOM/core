@@ -43,7 +43,7 @@ Multi-tenant RBAC (admin/viewer roles, account scoping) was considered for Phase
 
 - Every `/v1/*` route except `GET /v1/health` requires `Authorization: Bearer` or `X-API-Key`.
 - An empty secret leaves the API open for local development. Production and the Helm chart set the secret.
-- [ADR 005](./005-console-admins.md) replaces the shared secret with a console session and a personal API token per admin. Admin management requires that session.
+- [ADR 005](./005-console-admins.md) replaces the shared secret with a console session. An admin can create a personal API token for scripts. Admin management requires that session.
 
 ## Consequences
 

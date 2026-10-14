@@ -23,7 +23,7 @@ People using the console need a login. Scripts that call the HTTP API need a cre
 - Each admin can turn on TOTP two-factor authentication. Recovery codes are shown once. It is not required to finish setup.
 - Google accounts must have a verified email. GitHub login requests `user:email` and accepts any verified address.
 - A successful login sets an httpOnly session cookie. The cookie is `Secure` when `OM_PUBLIC_URL` is `https`. Sessions last 7 days.
-- Creating an admin also creates a personal API token. The database stores only the hash. The raw value is shown once, in the console after that first session. Scripts send it as `Authorization: Bearer` or `X-API-Key`. Rotating the token returns the new value once and invalidates the old one. Removing an admin revokes their token.
+- Creating an admin does not create an API token. An admin creates one from the console, or from the machine with `om token create --email`. The database stores only the hash. The raw value is shown once, in that response. Scripts send it as `Authorization: Bearer` or `X-API-Key`. Rotating the token, from the console or `om token rotate --email`, returns the new value once and invalidates the old one. Removing an admin revokes their token.
 - Every console account is an admin. There is no role column. The last admin cannot be removed.
 - `GET /v1/admins`, `POST /v1/admins`, `POST /v1/admins/token`, and `DELETE /v1/admins/{id}` require a session. A personal token cannot create, rotate, or remove admins.
 - Other `/v1` routes accept that personal token or a session, except health, `GET /v1/auth/session`, and `POST /v1/auth/logout`. There is no shared secret and no open mode.
@@ -34,7 +34,7 @@ People using the console need a login. Scripts that call the HTTP API need a cre
 
 - Password login works with no identity provider and no mail server. Google, GitHub, and SMTP are optional.
 - Whoever can reach the API before the first admin exists can claim the install. Keep that port private, or create the admin with `om admin create` first.
-- An air-gapped console can sign in with a password. Scripts need a personal token from an admin who has signed in.
+- An air-gapped console can sign in with a password. Scripts need a token created from the console or with `om token create`.
 - Platform audit logs of who used the console remain a commercial concern. This ADR records who the admins are, not a history of their actions.
 
 ## References

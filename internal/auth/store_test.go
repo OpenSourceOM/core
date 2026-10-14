@@ -36,14 +36,21 @@ func TestStoreInviteSessionAndLastAdmin(t *testing.T) {
 	if _, err := store.Bootstrap(ctx, Identity{Provider: ProviderGitHub, Subject: "200", Login: "other", Emails: []string{"other@example.com"}}); err != ErrAdminsExist {
 		t.Fatalf("second bootstrap = %v", err)
 	}
-	preview, err := store.TakeTokenPreview(ctx, first.ID)
-	if err != nil || preview == "" {
-		t.Fatalf("preview = %q err=%v", preview, err)
+	has, err := store.HasToken(ctx, first.ID)
+	if err != nil || has {
+		t.Fatalf("has token = %v err=%v", has, err)
 	}
-	if again, err := store.TakeTokenPreview(ctx, first.ID); err != nil || again != "" {
-		t.Fatalf("second preview = %q err=%v", again, err)
+	if _, err := store.CreateToken(ctx, "not-a-uuid"); err != ErrNotFound {
+		t.Fatalf("create missing = %v", err)
 	}
-	loadedToken, err := store.AdminForToken(ctx, preview)
+	created, err := store.CreateToken(ctx, first.ID)
+	if err != nil || created == "" {
+		t.Fatalf("create token = %q err=%v", created, err)
+	}
+	if _, err := store.CreateToken(ctx, first.ID); err != ErrTokenExists {
+		t.Fatalf("second create = %v", err)
+	}
+	loadedToken, err := store.AdminForToken(ctx, created)
 	if err != nil || loadedToken.ID != first.ID {
 		t.Fatalf("token admin = %+v err=%v", loadedToken, err)
 	}
@@ -51,7 +58,7 @@ func TestStoreInviteSessionAndLastAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rotate: %v", err)
 	}
-	if _, err := store.AdminForToken(ctx, preview); err != ErrNotFound {
+	if _, err := store.AdminForToken(ctx, created); err != ErrNotFound {
 		t.Fatalf("old token = %v", err)
 	}
 	if got, err := store.AdminForToken(ctx, rotated); err != nil || got.ID != first.ID {

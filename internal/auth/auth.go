@@ -43,6 +43,7 @@ var (
 	ErrSetupEmail      = errors.New("setup email mismatch")
 	ErrTOTPInvalid     = errors.New("invalid authentication code")
 	ErrTOTPEnabled     = errors.New("two-factor authentication is already on")
+	ErrTokenExists     = errors.New("api token exists")
 )
 
 // Admin is a console operator. Password accounts use provider "password".
@@ -101,7 +102,8 @@ type Directory interface {
 	CreateLoginChallenge(ctx context.Context, adminID string) (token string, err error)
 	ConsumeLoginChallenge(ctx context.Context, token string) (Admin, error)
 	AdminForToken(ctx context.Context, token string) (Admin, error)
-	TakeTokenPreview(ctx context.Context, adminID string) (string, error)
+	HasToken(ctx context.Context, adminID string) (bool, error)
+	CreateToken(ctx context.Context, adminID string) (string, error)
 	RotateToken(ctx context.Context, adminID string) (string, error)
 }
 
