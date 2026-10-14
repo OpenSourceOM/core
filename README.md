@@ -80,14 +80,12 @@ git clone https://github.com/OpenSourceOM/core.git
 cd core
 cp .env.example .env
 
-# Start Postgres + API (http://localhost:8080)
+# Start Postgres + API (http://localhost:8080).
+# om serve applies pending migrations before it listens.
 docker compose up -d
 
 # Build the CLI
 go build -o om ./cmd/om
-
-# Apply graph schema migrations
-./om migrate
 
 # Load the sample graph (no cloud credentials)
 ./om scan demo
@@ -141,7 +139,7 @@ An API token is created only when an admin asks for one, from the console or wit
 ./om scan plugin -- ./my-collector
 ```
 
-The CLI does not read `.env`. It defaults `POSTGRES_HOST` to `localhost`, which matches the Postgres port Compose publishes, so the host commands above reach the database. Set `POSTGRES_HOST=localhost` only if your shell already exports `POSTGRES_HOST=postgres`. For CLI-only use without the API container, run `docker compose up -d postgres`.
+The CLI does not read `.env`. It defaults `POSTGRES_HOST` to `localhost`, which matches the Postgres port Compose publishes, so the host commands above reach the database. Set `POSTGRES_HOST=localhost` only if your shell already exports `POSTGRES_HOST=postgres`. For CLI-only use without the API container, run `docker compose up -d postgres` and then `./om migrate`. `om serve` applies the same files on startup. Set `OM_AUTO_MIGRATE=false` when a separate `om migrate` should be the only writer. The Helm chart still runs `om migrate` in an init container before `om serve`.
 
 **Kubernetes:**
 

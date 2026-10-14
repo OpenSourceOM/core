@@ -50,10 +50,10 @@ func loadConfig() config.Config {
 	return config.Load()
 }
 
-func runMigrations(ctx context.Context, cfg config.Config) error {
+func runMigrations(ctx context.Context, cfg config.Config) ([]string, error) {
 	migrationsDir, err := repoPath("migrations")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	return migrate.Run(ctx, cfg.DatabaseURL, migrationsDir)
 }

@@ -14,6 +14,8 @@ service:
 
 api:
   env: production
+  # om serve applies pending migrations. The migrate init container still runs first.
+  autoMigrate: true
   # Browser origin for the console and optional OAuth callbacks. No trailing path.
   publicURL: ""
   # When set, only this address can become the first admin.

@@ -266,7 +266,7 @@ func openAuthStore(t *testing.T) *Store {
 		t.Fatal("locate test file")
 	}
 	migrations := filepath.Join(filepath.Dir(file), "..", "..", "migrations")
-	if err := migrate.Run(ctx, databaseURL.String(), migrations); err != nil {
+	if _, err := migrate.Run(ctx, databaseURL.String(), migrations); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	store, err := NewStore(ctx, databaseURL.String())

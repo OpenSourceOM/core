@@ -48,6 +48,8 @@ spec:
               value: {{ .Values.api.env | quote }}
             - name: OM_API_PORT
               value: "8080"
+            - name: OM_AUTO_MIGRATE
+              value: {{ .Values.api.autoMigrate | quote }}
             {{- with .Values.api.publicURL }}
             - name: OM_PUBLIC_URL
               value: {{ . | quote }}

@@ -18,7 +18,7 @@ OpenSourceOM needs a minimal graph model to connect cloud inventory (workloads, 
 ### Storage
 
 - **Backend:** PostgreSQL with two tables — `nodes` and `edges`.
-- **Migrations:** Versioned SQL files in `migrations/`, applied by `om migrate`.
+- **Migrations:** Versioned SQL files in `migrations/`, applied by `om migrate` and by `om serve` unless `OM_AUTO_MIGRATE=false`.
 - **Properties:** Flexible `JSONB` column on nodes and edges for provider-specific attributes.
 
 ### Node types (v0)

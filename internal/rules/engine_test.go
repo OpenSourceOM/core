@@ -189,7 +189,7 @@ func openRulesFixture(t *testing.T) *graph.Store {
 		t.Fatal("locate test file")
 	}
 	migrations := filepath.Join(filepath.Dir(file), "..", "..", "migrations")
-	if err := migrate.Run(ctx, databaseURL.String(), migrations); err != nil {
+	if _, err := migrate.Run(ctx, databaseURL.String(), migrations); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	store, err := graph.NewStore(ctx, databaseURL.String())
