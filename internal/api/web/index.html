@@ -11,7 +11,7 @@
 <body>
   <header>
     <div class="brand">
-      <svg class="logo-icon" width="40" height="40" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <svg class="logo-icon" width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
         <rect width="32" height="32" rx="8" fill="#0D1420" stroke="#1E293B" />
         <circle cx="16" cy="16" r="5" stroke="url(#brandGrad)" stroke-width="2" />
         <circle cx="9" cy="10" r="2" fill="#6366F1" />
@@ -33,7 +33,7 @@
     <div id="account" class="account hidden">
       <span id="account-label"></span>
       <div class="settings">
-        <button id="settings-btn" type="button" aria-expanded="false" aria-controls="settings-menu" aria-haspopup="true">
+        <button id="settings-btn" class="btn btn-secondary" type="button" aria-expanded="false" aria-controls="settings-menu" aria-haspopup="true">
           Settings
           <span class="chevron" aria-hidden="true"></span>
         </button>
@@ -49,8 +49,8 @@
   </header>
 
   <section id="gate" class="gate">
-    <div class="gate-brand">
-      <svg class="logo-icon" width="64" height="64" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+    <div class="gate-brand" aria-hidden="true">
+      <svg class="logo-icon" width="48" height="48" viewBox="0 0 32 32" fill="none">
         <rect width="32" height="32" rx="8" fill="#0D1420" stroke="#1E293B" />
         <circle cx="16" cy="16" r="5" stroke="url(#gateGrad)" stroke-width="2" />
         <circle cx="9" cy="10" r="2" fill="#6366F1" />
@@ -64,9 +64,8 @@
           </linearGradient>
         </defs>
       </svg>
-      <p class="brand-name">OpenSource<span class="brand-accent">OM</span></p>
-      <p class="gate-tag">Graph-native cloud security</p>
     </div>
+    <p class="eyebrow">Console</p>
     <h2 id="gate-title">Sign in</h2>
     <p id="gate-message">Checking session…</p>
     <div id="gate-actions" class="gate-actions"></div>
@@ -75,7 +74,7 @@
   <section id="token-banner" class="token-banner hidden" role="status">
     <p>This API token is for scripts. Copy it now. It will not be shown again.</p>
     <input id="token-value" readonly aria-label="Secret" />
-    <button id="token-dismiss" type="button">Dismiss</button>
+    <button id="token-dismiss" class="btn btn-secondary" type="button">Dismiss</button>
   </section>
   <section id="security-panel" class="admins hidden"></section>
   <section id="admins-panel" class="admins hidden"></section>
@@ -83,18 +82,29 @@
 
   <main id="console" class="layout hidden">
     <aside>
-      <h2>Findings</h2>
+      <div class="panel-heading">
+        <div>
+          <p class="panel-kicker">Prioritized</p>
+          <h2>Findings</h2>
+        </div>
+        <span id="findings-count" class="count-pill">—</span>
+      </div>
       <div id="findings" class="findings"></div>
     </aside>
     <section class="graph-panel">
       <div class="graph-toolbar">
-        <h2>Graph Explorer</h2>
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">Query the model</p>
+            <h2>Graph Explorer</h2>
+          </div>
+        </div>
         <div class="toolbar-actions">
           <select id="query-select" aria-label="Graph query">
             <option value="">Full graph snapshot</option>
           </select>
-          <button id="rules-btn" type="button">Run CSPM rules</button>
-          <button id="refresh-btn" type="button">Refresh</button>
+          <button id="rules-btn" class="btn btn-primary" type="button">Run CSPM rules</button>
+          <button id="refresh-btn" class="btn btn-secondary" type="button">Refresh</button>
         </div>
       </div>
       <ul class="legend" aria-label="Node types">

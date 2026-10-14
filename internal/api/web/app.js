@@ -30,8 +30,8 @@ async function showBlastRadius(identityID, name) {
   panel.textContent = "Loading blast radius…";
   try {
     const result = await fetchJSON(`/v1/identity/blast-radius?identity_id=${encodeURIComponent(identityID)}`);
-    const items = (result.reachable || []).slice(0, 8).map((n) => `${n.name} (${n.type})`).join(", ");
-    panel.innerHTML = `<strong>Blast radius — ${name}</strong><br>${result.summary}${items ? `<br><span class="meta">${items}</span>` : ""}`;
+    const items = (result.reachable || []).slice(0, 8).map((n) => `${escapeHTML(n.name)} (${escapeHTML(n.type)})`).join(", ");
+    panel.innerHTML = `<p class="blast-kicker">Identity blast radius</p><p class="blast-name">${escapeHTML(name)}</p><p class="blast-summary">${escapeHTML(result.summary || "")}</p>${items ? `<p class="meta">${items}</p>` : ""}`;
   } catch (err) {
     panel.textContent = `Blast radius failed: ${err.message}`;
   }
@@ -559,21 +559,23 @@ function severityClass(level) {
 function renderStats(stats) {
   const el = document.getElementById("stats");
   const cards = [
-    ["Nodes", stats.nodes],
-    ["Edges", stats.edges],
-    ["Findings", stats.by_type?.Finding || 0],
-    ["Workloads", stats.by_type?.Workload || 0],
+    ["Nodes", stats.nodes, "#22d3ee"],
+    ["Edges", stats.edges, "#6366f1"],
+    ["Findings", stats.by_type?.Finding || 0, "#fb923c"],
+    ["Workloads", stats.by_type?.Workload || 0, "#34d399"],
   ];
-  el.innerHTML = cards.map(([label, value]) => `
-    <div class="stat-card">
-      <div class="label">${label}</div>
-      <div class="value">${value ?? 0}</div>
-    </div>
+  el.innerHTML = cards.map(([label, value, accent]) => `
+    <article class="stat-card" style="--stat-accent: ${accent}">
+      <p class="label">${label}</p>
+      <p class="value">${value ?? 0}</p>
+    </article>
   `).join("");
 }
 
 function renderFindings(findings, partial) {
   const el = document.getElementById("findings");
+  const count = document.getElementById("findings-count");
+  if (count) count.textContent = findings.length ? (partial ? `${findings.length}+` : String(findings.length)) : "0";
   const partialNote = partial
     ? "<p class=\"meta\">This list is partial. More findings are past the pages loaded here.</p>"
     : "";
@@ -585,23 +587,34 @@ function renderFindings(findings, partial) {
     const f = item.finding;
     const props = f.properties || {};
     const severity = props.severity || "info";
+    const level = severityClass(severity);
     const score = props.normalized_score ?? "";
     const pathLine = Array.isArray(item.path) && item.path.length
       ? `<div class="meta">${item.path.map((id) => escapeHTML(id)).join(" → ")}</div>`
       : "";
     return `
-      <article class="finding" data-target="${item.affected_resource_id || ""}">
-        <span class="severity ${severityClass(severity)}">${severity}${score === "" ? "" : " " + score}</span>
-        <div class="title">${f.name}</div>
-        <div class="meta">${props.description || props.title || ""}</div>
+      <article class="finding ${level}" data-target="${escapeAttr(item.affected_resource_id || "")}" tabindex="0">
+        <span class="severity ${level}">${escapeHTML(severity)}${score === "" ? "" : " " + escapeHTML(score)}</span>
+        <div class="title">${escapeHTML(f.name || "")}</div>
+        <div class="meta">${escapeHTML(props.description || props.title || "")}</div>
         ${pathLine}
-        <div class="resource">${item.affected_resource_name || "Unknown resource"}</div>
+        <div class="resource">${escapeHTML(item.affected_resource_name || "Unknown resource")}</div>
       </article>
     `;
   }).join("") + partialNote;
 
   el.querySelectorAll(".finding").forEach((card) => {
-    card.addEventListener("click", () => highlightNode(card.dataset.target));
+    const select = () => {
+      el.querySelectorAll(".finding.is-selected").forEach((other) => other.classList.remove("is-selected"));
+      card.classList.add("is-selected");
+      highlightNode(card.dataset.target);
+    };
+    card.addEventListener("click", select);
+    card.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      select();
+    });
   });
 }
 
@@ -612,7 +625,10 @@ function toVisNodes(nodes) {
       id: n.id,
       label: n.name,
       title: n.type,
-      borderWidth: 2,
+      shape: "box",
+      margin: 10,
+      borderWidth: 1.5,
+      shapeProperties: { borderRadius: 8 },
       color: {
         background: "#0d1420",
         border: color,
@@ -620,7 +636,8 @@ function toVisNodes(nodes) {
         hover: { background: "#111827", border: color },
       },
       font: { color: "#e2e8f0", size: 13, face: "IBM Plex Sans, system-ui, sans-serif" },
-      shadow: { enabled: true, color: color, size: 16, x: 0, y: 0 },
+      shadow: { enabled: true, color: color, size: 14, x: 0, y: 0 },
+      widthConstraint: { maximum: 180 },
     };
   });
 }
@@ -631,7 +648,8 @@ function toVisEdges(edges) {
     to: e.target_id,
     label: e.type,
     title: (e.properties && e.properties.reason) || e.type,
-    arrows: "to",
+    arrows: { to: { enabled: true, scaleFactor: 0.55 } },
+    width: 1.4,
     color: { color: "rgba(34, 211, 238, 0.45)", highlight: "#22d3ee", hover: "#a5f3fc" },
     font: {
       align: "middle",
@@ -641,6 +659,7 @@ function toVisEdges(edges) {
       strokeWidth: 4,
       strokeColor: "#070b12",
     },
+    smooth: { type: "continuous", roundness: 0.25 },
   }));
 }
 
@@ -652,14 +671,21 @@ function renderGraph(nodes, edges) {
     edges: new vis.DataSet(toVisEdges(edges)),
   };
   const options = {
-    physics: { stabilization: true },
-    interaction: { hover: true },
-    nodes: { shape: "dot", size: 16 },
-    edges: { width: 1.5, smooth: { type: "continuous" } },
+    physics: {
+      barnesHut: {
+        gravitationalConstant: -14000,
+        centralGravity: 0.18,
+        springLength: 170,
+        springConstant: 0.035,
+        damping: 0.45,
+      },
+      stabilization: { iterations: 160 },
+    },
+    interaction: { hover: true, tooltipDelay: 80, hideEdgesOnDrag: true },
   };
   network = new vis.Network(container, graphData, options);
   network.once("stabilizationIterationsDone", () => {
-    network.fit({ animation: false, padding: 72 });
+    network.fit({ animation: false, padding: 64 });
   });
   network.on("click", async (params) => {
     if (!params.nodes.length) return;
@@ -717,6 +743,10 @@ function escapeHTML(value) {
     .replaceAll(">", "&gt;");
 }
 
+function escapeAttr(value) {
+  return escapeHTML(value).replaceAll('"', "&quot;");
+}
+
 function auditsForPath(audits, index) {
   const row = (audits || []).find((item) => item.index === index);
   return row?.events || [];
@@ -750,7 +780,7 @@ function renderPathDetail(paths, edges, truncation, audits) {
     }).join("");
     const eventList = events ? `<p class="meta">CloudTrail</p><ul>${events}</ul>` : "";
     const names = path.map((node) => escapeHTML(node.name)).join(" → ");
-    return `<p><strong>Path ${index + 1}.</strong> ${names}</p><ol>${hops.join("")}</ol>${eventList}`;
+    return `<article class="path-card"><p class="path-index">Path ${index + 1}</p><p class="path-title">${names}</p><ol>${hops.join("")}</ol>${eventList}</article>`;
   }).join("");
 }
 
