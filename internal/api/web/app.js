@@ -123,9 +123,9 @@ function setTokenButton() {
 }
 
 function adminLabel(admin) {
-  const who = admin.login || admin.name || "Admin";
-  const via = providerLabels[admin.provider] || admin.provider;
-  return `${who} · ${via}`;
+  const who = admin.login || admin.name || admin.email || "Admin";
+  const via = providerLabels[admin.provider];
+  return via ? `${who} · ${via}` : who;
 }
 
 function showSignedOut(message) {
