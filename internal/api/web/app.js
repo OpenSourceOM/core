@@ -1,11 +1,11 @@
 const nodeColors = {
-  Internet: "#ff6b6b",
-  Network: "#4dabf7",
-  Workload: "#51cf66",
-  Identity: "#ffd43b",
-  Datastore: "#845ef7",
-  Finding: "#ff922b",
-  Control: "#868e96",
+  Internet: "#f87171",
+  Network: "#22d3ee",
+  Workload: "#34d399",
+  Identity: "#fbbf24",
+  Datastore: "#a855f7",
+  Finding: "#fb923c",
+  Control: "#94a3b8",
 };
 
 let network = null;
@@ -595,7 +595,7 @@ function renderFindings(findings, partial) {
         <div class="title">${f.name}</div>
         <div class="meta">${props.description || props.title || ""}</div>
         ${pathLine}
-        <div class="meta">${item.affected_resource_name || "Unknown resource"}</div>
+        <div class="resource">${item.affected_resource_name || "Unknown resource"}</div>
       </article>
     `;
   }).join("") + partialNote;
@@ -606,12 +606,23 @@ function renderFindings(findings, partial) {
 }
 
 function toVisNodes(nodes) {
-  return nodes.map((n) => ({
-    id: n.id,
-    label: `${n.name}\n(${n.type})`,
-    color: nodeColors[n.type] || "#adb5bd",
-    font: { color: "#f8f9fa", size: 12 },
-  }));
+  return nodes.map((n) => {
+    const color = nodeColors[n.type] || "#94a3b8";
+    return {
+      id: n.id,
+      label: n.name,
+      title: n.type,
+      borderWidth: 2,
+      color: {
+        background: "#0d1420",
+        border: color,
+        highlight: { background: "#132033", border: "#22d3ee" },
+        hover: { background: "#111827", border: color },
+      },
+      font: { color: "#e2e8f0", size: 13, face: "IBM Plex Sans, system-ui, sans-serif" },
+      shadow: { enabled: true, color: color, size: 16, x: 0, y: 0 },
+    };
+  });
 }
 
 function toVisEdges(edges) {
@@ -621,8 +632,15 @@ function toVisEdges(edges) {
     label: e.type,
     title: (e.properties && e.properties.reason) || e.type,
     arrows: "to",
-    color: { color: "#495057" },
-    font: { align: "middle", size: 10, color: "#adb5bd" },
+    color: { color: "rgba(34, 211, 238, 0.45)", highlight: "#22d3ee", hover: "#a5f3fc" },
+    font: {
+      align: "middle",
+      size: 10,
+      face: "IBM Plex Mono, ui-monospace, monospace",
+      color: "#94a3b8",
+      strokeWidth: 4,
+      strokeColor: "#070b12",
+    },
   }));
 }
 
@@ -636,8 +654,13 @@ function renderGraph(nodes, edges) {
   const options = {
     physics: { stabilization: true },
     interaction: { hover: true },
+    nodes: { shape: "dot", size: 16 },
+    edges: { width: 1.5, smooth: { type: "continuous" } },
   };
   network = new vis.Network(container, graphData, options);
+  network.once("stabilizationIterationsDone", () => {
+    network.fit({ animation: false, padding: 72 });
+  });
   network.on("click", async (params) => {
     if (!params.nodes.length) return;
     const nodeID = params.nodes[0];
