@@ -30,7 +30,17 @@ services:
     environment:
       OM_ENV: ${OM_ENV:-development}
       OM_API_PORT: 8080
-      OM_API_SECRET: ${OM_API_SECRET:-change-me-in-production}
+      OM_PUBLIC_URL: ${OM_PUBLIC_URL:-http://localhost:8080}
+      OM_ADMIN_EMAIL: ${OM_ADMIN_EMAIL:-}
+      OM_GOOGLE_CLIENT_ID: ${OM_GOOGLE_CLIENT_ID:-}
+      OM_GOOGLE_CLIENT_SECRET: ${OM_GOOGLE_CLIENT_SECRET:-}
+      OM_GITHUB_CLIENT_ID: ${OM_GITHUB_CLIENT_ID:-}
+      OM_GITHUB_CLIENT_SECRET: ${OM_GITHUB_CLIENT_SECRET:-}
+      OM_SMTP_HOST: ${OM_SMTP_HOST:-}
+      OM_SMTP_PORT: ${OM_SMTP_PORT:-587}
+      OM_SMTP_USERNAME: ${OM_SMTP_USERNAME:-}
+      OM_SMTP_PASSWORD: ${OM_SMTP_PASSWORD:-}
+      OM_SMTP_FROM: ${OM_SMTP_FROM:-}
       POSTGRES_USER: ${POSTGRES_USER:-opensourceom}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opensourceom}
       POSTGRES_DB: ${POSTGRES_DB:-opensourceom}

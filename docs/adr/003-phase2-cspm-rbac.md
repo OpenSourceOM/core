@@ -41,14 +41,15 @@ Multi-tenant RBAC (admin/viewer roles, account scoping) was considered for Phase
 
 ### API authentication (OSS)
 
-- When `OM_API_SECRET` is set, every `/v1/*` route except `GET /v1/health` requires `Authorization: Bearer` or `X-API-Key`.
+- Every `/v1/*` route except `GET /v1/health` requires `Authorization: Bearer` or `X-API-Key`.
 - An empty secret leaves the API open for local development. Production and the Helm chart set the secret.
+- [ADR 005](./005-console-admins.md) replaces the shared secret with a console session and a personal API token per admin. Admin management requires that session.
 
 ## Consequences
 
 - CSPM rules are code-defined in Phase 2; YAML rule packs (`packs/*.yaml`) land in Phase 3 and are embedded at compile time.
 - K8s public exposure follows LoadBalancer services and Ingress backends, gated by NetworkPolicy. Gateway API, internal-only ingress classes, and ipBlock exceptions are not modeled.
-- Role-based access, multi-tenant scoping, and SAML/SSO are out of scope for the OSS core — see [OSS vs. commercial](./ROADMAP.md#open-source-vs-commercial).
+- Role-based access, multi-tenant scoping, and SAML or custom enterprise identity providers are out of scope for the OSS core — see [OSS vs. commercial](../ROADMAP.md#open-source-vs-commercial). Console login with Google and GitHub, where every account is an admin, is [ADR 005](./005-console-admins.md).
 
 ## References
 
