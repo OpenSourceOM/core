@@ -12,6 +12,7 @@ let network = null;
 let graphData = { nodes: [], edges: [] };
 let lastGraphNodes = [];
 let currentAdmin = null;
+let gateSession = null;
 
 const providerLabels = { google: "Google", github: "GitHub" };
 const authErrors = {
@@ -137,8 +138,10 @@ function showSignedOut(message) {
 }
 
 function renderGate(session) {
+  gateSession = session;
   const params = new URLSearchParams(window.location.search);
   const errorCode = params.get("error");
+  const reset = params.get("reset");
   const providers = session.providers || [];
   const gate = document.getElementById("gate");
   gate.classList.remove("hidden");
@@ -151,12 +154,17 @@ function renderGate(session) {
   if (!session.login_enabled) {
     title = "Console login is not available";
     message = "The API process does not have an admin store.";
+  } else if (reset && reset !== "done") {
+    title = "Choose a new password";
+    message = "This link works once and expires one hour after it was sent.";
   } else if (params.get("totp") === "1") {
     title = "Two-factor authentication";
     message = "Enter the code from your authenticator app, or a recovery code.";
   } else if (session.needs_setup) {
     title = "Create the admin account";
     message = "Choose an email and password. Whoever can open this page first becomes the admin, so keep the port private until you finish.";
+  } else if (reset === "done") {
+    message = "Password saved. Sign in with the new one.";
   }
 
   if (errorCode && authErrors[errorCode]) {
@@ -168,6 +176,10 @@ function renderGate(session) {
   const actions = document.getElementById("gate-actions");
   actions.replaceChildren();
   if (!session.login_enabled) return;
+  if (reset && reset !== "done") {
+    actions.appendChild(resetPasswordForm(reset));
+    return;
+  }
   if (params.get("totp") === "1") {
     actions.appendChild(totpForm());
     return;
@@ -176,7 +188,7 @@ function renderGate(session) {
     actions.appendChild(setupForm(session.setup_email || ""));
     return;
   }
-  actions.appendChild(loginForm());
+  actions.appendChild(loginForm(Boolean(session.password_reset)));
   providers.forEach((provider) => {
     const link = document.createElement("a");
     link.className = "button";
@@ -243,7 +255,7 @@ function setupForm(pinnedEmail) {
   return form;
 }
 
-function loginForm() {
+function loginForm(resetEnabled) {
   const form = document.createElement("form");
   form.className = "auth-form";
   const email = field("email", "email", "Email");
@@ -253,6 +265,18 @@ function loginForm() {
   submit.textContent = "Sign in";
   const status = formStatus();
   form.append(email, password, submit, status);
+  if (resetEnabled) {
+    const forgot = document.createElement("button");
+    forgot.type = "button";
+    forgot.className = "link";
+    forgot.textContent = "Forgot password?";
+    forgot.addEventListener("click", () => {
+      document.getElementById("gate-title").textContent = "Reset password";
+      document.getElementById("gate-message").textContent = "Enter the email on the admin account. If it uses a password, we will send a reset link.";
+      document.getElementById("gate-actions").replaceChildren(forgotForm(email.value));
+    });
+    form.append(forgot);
+  }
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     submit.disabled = true;
@@ -267,6 +291,82 @@ function loginForm() {
         return;
       }
       window.location.href = "/";
+    } catch (err) {
+      status.textContent = err.message;
+      submit.disabled = false;
+    }
+  });
+  return form;
+}
+
+function showSignIn() {
+  if (window.location.pathname !== "/login" || window.location.search) {
+    window.history.replaceState({}, "", "/login");
+  }
+  renderGate(gateSession || { login_enabled: true, providers: [], needs_setup: false });
+}
+
+function forgotForm(prefill) {
+  const form = document.createElement("form");
+  form.className = "auth-form";
+  const email = field("email", "email", "Email", prefill);
+  if (prefill) email.readOnly = false;
+  email.autocomplete = "email";
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.textContent = "Send reset link";
+  const back = document.createElement("button");
+  back.type = "button";
+  back.className = "link";
+  back.textContent = "Back to sign in";
+  back.addEventListener("click", showSignIn);
+  const status = formStatus();
+  form.append(email, submit, back, status);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    try {
+      await fetchJSON("/v1/auth/forgot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.value }),
+      });
+      status.textContent = "If that email has a password, a reset link is on its way. It expires in one hour.";
+    } catch (err) {
+      status.textContent = err.message;
+      submit.disabled = false;
+    }
+  });
+  return form;
+}
+
+function resetPasswordForm(token) {
+  const form = document.createElement("form");
+  form.className = "auth-form";
+  const password = field("password", "password", "New password");
+  password.autocomplete = "new-password";
+  password.minLength = 12;
+  const confirm = field("password", "confirm", "Confirm password");
+  confirm.autocomplete = "new-password";
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.textContent = "Save password";
+  const status = formStatus();
+  form.append(password, confirm, submit, status);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (password.value !== confirm.value) {
+      status.textContent = "Passwords do not match.";
+      return;
+    }
+    submit.disabled = true;
+    try {
+      await fetchJSON("/v1/auth/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, password: password.value }),
+      });
+      window.location.href = "/login?reset=done";
     } catch (err) {
       status.textContent = err.message;
       submit.disabled = false;
@@ -826,6 +926,11 @@ document.getElementById("admins-btn").addEventListener("click", () => {
   localStorage.removeItem("om_api_key");
   try {
     const session = await fetchJSON("/v1/auth/session");
+    const reset = new URLSearchParams(window.location.search).get("reset");
+    if (reset && reset !== "done") {
+      renderGate(session);
+      return;
+    }
     if (session.authenticated) {
       showConsole(session);
       await loadConsole();

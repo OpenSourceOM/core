@@ -24,6 +24,7 @@ api:
   github:
     clientId: ""
     clientSecret: ""
+  # Optional. Sends temporary admin passwords and password-reset links.
   smtp:
     host: ""
     port: 587

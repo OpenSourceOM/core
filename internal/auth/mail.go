@@ -39,6 +39,18 @@ func (m InviteMailer) SendTemporaryPassword(ctx context.Context, to, password, l
 	return m.deliver(ctx, to, body)
 }
 
+func (m InviteMailer) SendPasswordReset(ctx context.Context, to, resetURL string) error {
+	to, err := NormalizeEmail(to)
+	if err != nil {
+		return err
+	}
+	body := fmt.Sprintf(
+		"To: %s\r\nFrom: %s\r\nSubject: Reset your OpenSourceOM password\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nA password reset was requested for %s.\r\n\r\nOpen this link to choose a new password. It works once and expires in one hour:\r\n%s\r\n\r\nIf you did not request this, you can ignore this email.\r\n",
+		to, m.From, to, resetURL,
+	)
+	return m.deliver(ctx, to, body)
+}
+
 func (m InviteMailer) deliver(ctx context.Context, to, body string) error {
 	if !m.Enabled() {
 		return fmt.Errorf("smtp is not configured")

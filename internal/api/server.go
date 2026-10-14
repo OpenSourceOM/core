@@ -37,6 +37,7 @@ type Server struct {
 	providers     map[string]auth.Provider
 	setupEmail    string
 	sendPassword  func(ctx context.Context, to, password string) error
+	sendReset     func(ctx context.Context, to, resetURL string) error
 	loginLimit    *loginLimiter
 	secureCookies bool
 }
@@ -74,6 +75,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/auth/login", s.handleAuthLogin)
 	mux.HandleFunc("POST /v1/auth/totp", s.handleAuthTOTP)
 	mux.HandleFunc("POST /v1/auth/password", s.handleChangePassword)
+	mux.HandleFunc("POST /v1/auth/forgot", s.handleForgotPassword)
+	mux.HandleFunc("POST /v1/auth/reset", s.handleResetPassword)
 	mux.HandleFunc("POST /v1/auth/totp/setup", s.handleTOTPSetup)
 	mux.HandleFunc("POST /v1/auth/totp/confirm", s.handleTOTPConfirm)
 	mux.HandleFunc("POST /v1/auth/totp/disable", s.handleTOTPDisable)
@@ -91,7 +94,7 @@ func (s *Server) Handler() http.Handler {
 }
 
 // requireAPIAuth demands a console session or that admin's API token on every
-// /v1 route except health, the session probe, and logout. The HTML stays
+// /v1 route except the public auth routes in publicV1. The HTML stays
 // open so the login page can load. Admin management still requires a session.
 func (s *Server) requireAPIAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

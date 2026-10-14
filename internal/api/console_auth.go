@@ -35,6 +35,7 @@ type ConsoleAuth struct {
 	Providers    map[string]auth.Provider
 	SetupEmail   string
 	SendPassword func(ctx context.Context, to, password string) error
+	SendReset    func(ctx context.Context, to, resetURL string) error
 }
 
 func (s *Server) WithConsoleAuth(cfg ConsoleAuth) *Server {
@@ -43,6 +44,7 @@ func (s *Server) WithConsoleAuth(cfg ConsoleAuth) *Server {
 	s.providers = cfg.Providers
 	s.setupEmail = strings.TrimSpace(cfg.SetupEmail)
 	s.sendPassword = cfg.SendPassword
+	s.sendReset = cfg.SendReset
 	s.secureCookies = strings.HasPrefix(s.publicURL, "https://")
 	if s.loginLimit == nil {
 		s.loginLimit = newLoginLimiter()
@@ -67,10 +69,11 @@ func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := map[string]any{
-		"authenticated": false,
-		"login_enabled": true,
-		"needs_setup":   count == 0,
-		"providers":     s.providerNames(),
+		"authenticated":  false,
+		"login_enabled":  true,
+		"needs_setup":    count == 0,
+		"password_reset": s.sendReset != nil,
+		"providers":      s.providerNames(),
 	}
 	if count == 0 && s.setupEmail != "" {
 		body["setup_email"] = s.setupEmail
@@ -463,6 +466,10 @@ func publicV1(r *http.Request) bool {
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/login":
 		return true
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/totp":
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/forgot":
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/reset":
 		return true
 	default:
 		return false

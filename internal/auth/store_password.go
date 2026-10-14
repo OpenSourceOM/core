@@ -11,7 +11,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const loginChallengeTTL = 5 * time.Minute
+const (
+	loginChallengeTTL = 5 * time.Minute
+	passwordResetTTL  = time.Hour
+)
 
 func (s *Store) FindByEmail(ctx context.Context, email string) (Admin, bool, error) {
 	email, err := NormalizeEmail(email)
@@ -150,6 +153,103 @@ func (s *Store) SetPassword(ctx context.Context, email, password string) error {
 		return ErrNotFound
 	}
 	return s.storePassword(ctx, email, password, false)
+}
+
+// RequestPasswordReset stores a one-hour token for a password admin.
+// An unknown address returns an empty token and no error.
+func (s *Store) RequestPasswordReset(ctx context.Context, email string) (string, error) {
+	email, err := NormalizeEmail(email)
+	if err != nil {
+		return "", nil
+	}
+	admin, hash, err := s.passwordRecord(ctx, email)
+	if err != nil {
+		return "", err
+	}
+	if admin.ID == "" || hash == "" {
+		return "", nil
+	}
+	raw, err := NewToken()
+	if err != nil {
+		return "", err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `DELETE FROM admin_password_resets WHERE admin_id = $1`, admin.ID); err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO admin_password_resets (id, admin_id, expires_at)
+		VALUES ($1, $2, $3)
+	`, HashToken(raw), admin.ID, time.Now().UTC().Add(passwordResetTTL)); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return raw, nil
+}
+
+// CompletePasswordReset sets the password from a single-use token and ends that admin's sessions.
+func (s *Store) CompletePasswordReset(ctx context.Context, token, password string) error {
+	if err := ValidatePassword(password); err != nil {
+		return err
+	}
+	if token == "" || len(token) > 128 {
+		return ErrResetInvalid
+	}
+	encoded, err := HashPassword(password)
+	if err != nil {
+		return err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var adminID string
+	var expires time.Time
+	err = tx.QueryRow(ctx, `
+		DELETE FROM admin_password_resets
+		WHERE id = $1
+		RETURNING admin_id::text, expires_at
+	`, HashToken(token)).Scan(&adminID, &expires)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrResetInvalid
+	}
+	if err != nil {
+		return err
+	}
+	if !expires.After(time.Now()) {
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		return ErrResetInvalid
+	}
+	tag, err := tx.Exec(ctx, `
+		UPDATE admins
+		SET password_hash = $1, must_change_password = false
+		WHERE id = $2 AND provider = 'password'
+	`, encoded, adminID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrResetInvalid
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM admin_sessions WHERE admin_id = $1`, adminID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM admin_login_challenges WHERE admin_id = $1`, adminID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM admin_password_resets WHERE admin_id = $1`, adminID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) BeginTOTP(ctx context.Context, adminID string) (string, error) {

@@ -133,6 +133,101 @@ func TestConsoleLoginRejectsUnknownAccount(t *testing.T) {
 	}
 }
 
+func TestForgotPasswordResetsTheAccount(t *testing.T) {
+	directory := newMemoryDirectory()
+	var resetTo, resetURL string
+	var sent int
+	handler := NewServer(nil).WithConsoleAuth(ConsoleAuth{
+		Directory: directory,
+		PublicURL: "https://om.example",
+		SendReset: func(_ context.Context, to, link string) error {
+			sent++
+			resetTo, resetURL = to, link
+			return nil
+		},
+	}).Handler()
+
+	setup := httptest.NewRequest(http.MethodPost, "/v1/auth/setup", strings.NewReader(`{"email":"ada@example.com","password":"correct-horse-battery"}`))
+	setupRec := httptest.NewRecorder()
+	handler.ServeHTTP(setupRec, setup)
+	if setupRec.Code != http.StatusOK {
+		t.Fatalf("setup = %d %s", setupRec.Code, setupRec.Body.String())
+	}
+	session := cookieNamed(setupRec.Result().Cookies(), sessionCookie)
+
+	probe := httptest.NewRecorder()
+	handler.ServeHTTP(probe, httptest.NewRequest(http.MethodGet, "/v1/auth/session", nil))
+	if !strings.Contains(probe.Body.String(), `"password_reset":true`) {
+		t.Fatalf("session = %s", probe.Body.String())
+	}
+
+	missing := httptest.NewRecorder()
+	handler.ServeHTTP(missing, httptest.NewRequest(http.MethodPost, "/v1/auth/forgot", strings.NewReader(`{"email":"missing@example.com"}`)))
+	if missing.Code != http.StatusOK || sent != 0 {
+		t.Fatalf("unknown email = %d sent %d", missing.Code, sent)
+	}
+
+	forgot := httptest.NewRecorder()
+	handler.ServeHTTP(forgot, httptest.NewRequest(http.MethodPost, "/v1/auth/forgot", strings.NewReader(`{"email":"Ada@Example.com"}`)))
+	if forgot.Code != http.StatusOK || sent != 1 || resetTo != "ada@example.com" {
+		t.Fatalf("forgot = %d sent %d to %s", forgot.Code, sent, resetTo)
+	}
+	parsed, err := url.Parse(resetURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := parsed.Query().Get("reset")
+	if token == "" || !strings.HasPrefix(resetURL, "https://om.example/login?reset=") {
+		t.Fatalf("reset url = %s", resetURL)
+	}
+
+	short := httptest.NewRecorder()
+	handler.ServeHTTP(short, httptest.NewRequest(http.MethodPost, "/v1/auth/reset", strings.NewReader(`{"token":"`+token+`","password":"short"}`)))
+	if short.Code != http.StatusBadRequest {
+		t.Fatalf("short password = %d %s", short.Code, short.Body.String())
+	}
+
+	reset := httptest.NewRecorder()
+	handler.ServeHTTP(reset, httptest.NewRequest(http.MethodPost, "/v1/auth/reset", strings.NewReader(`{"token":"`+token+`","password":"a-new-password-ok"}`)))
+	if reset.Code != http.StatusNoContent {
+		t.Fatalf("reset = %d %s", reset.Code, reset.Body.String())
+	}
+
+	oldSession := httptest.NewRecorder()
+	rules := httptest.NewRequest(http.MethodGet, "/v1/rules", nil)
+	rules.AddCookie(session)
+	handler.ServeHTTP(oldSession, rules)
+	if oldSession.Code != http.StatusUnauthorized {
+		t.Fatalf("old session = %d", oldSession.Code)
+	}
+
+	reuse := httptest.NewRecorder()
+	handler.ServeHTTP(reuse, httptest.NewRequest(http.MethodPost, "/v1/auth/reset", strings.NewReader(`{"token":"`+token+`","password":"another-password-ok"}`)))
+	if reuse.Code != http.StatusBadRequest {
+		t.Fatalf("reuse = %d %s", reuse.Code, reuse.Body.String())
+	}
+
+	oldLogin := httptest.NewRecorder()
+	handler.ServeHTTP(oldLogin, httptest.NewRequest(http.MethodPost, "/v1/auth/login", strings.NewReader(`{"email":"ada@example.com","password":"correct-horse-battery"}`)))
+	if oldLogin.Code != http.StatusUnauthorized {
+		t.Fatalf("old password = %d", oldLogin.Code)
+	}
+	newLogin := httptest.NewRecorder()
+	handler.ServeHTTP(newLogin, httptest.NewRequest(http.MethodPost, "/v1/auth/login", strings.NewReader(`{"email":"ada@example.com","password":"a-new-password-ok"}`)))
+	if newLogin.Code != http.StatusOK {
+		t.Fatalf("new password = %d %s", newLogin.Code, newLogin.Body.String())
+	}
+}
+
+func TestForgotPasswordRequiresMail(t *testing.T) {
+	handler := NewServer(nil).WithConsoleAuth(ConsoleAuth{Directory: newMemoryDirectory()}).Handler()
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/auth/forgot", strings.NewReader(`{"email":"ada@example.com"}`)))
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestAuthSessionStaysOpen(t *testing.T) {
 	handler := (&Server{}).Handler()
 	recorder := httptest.NewRecorder()
@@ -170,7 +265,13 @@ type memoryDirectory struct {
 	previews   map[string]string
 	passwords  map[string]string
 	challenges map[string]string
+	resets     map[string]memoryReset
 	plainToken string
+}
+
+type memoryReset struct {
+	adminID string
+	expires time.Time
 }
 
 type memoryInvite struct {
@@ -187,6 +288,7 @@ func newMemoryDirectory() *memoryDirectory {
 		previews:   map[string]string{},
 		passwords:  map[string]string{},
 		challenges: map[string]string{},
+		resets:     map[string]memoryReset{},
 	}
 }
 
@@ -534,6 +636,67 @@ func (d *memoryDirectory) ChangePassword(_ context.Context, adminID, current, ne
 		return nil
 	}
 	return auth.ErrNotFound
+}
+
+func (d *memoryDirectory) RequestPasswordReset(_ context.Context, email string) (string, error) {
+	email, err := auth.NormalizeEmail(email)
+	if err != nil {
+		return "", nil
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	var admin auth.Admin
+	found := false
+	for _, candidate := range d.admins {
+		if candidate.Provider == auth.ProviderPassword && strings.EqualFold(candidate.Email, email) && d.passwords[email] != "" {
+			admin = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		return "", nil
+	}
+	for hash, reset := range d.resets {
+		if reset.adminID == admin.ID {
+			delete(d.resets, hash)
+		}
+	}
+	token := "reset-" + admin.ID
+	d.resets[auth.HashToken(token)] = memoryReset{adminID: admin.ID, expires: time.Now().Add(time.Hour)}
+	return token, nil
+}
+
+func (d *memoryDirectory) CompletePasswordReset(_ context.Context, token, password string) error {
+	if err := auth.ValidatePassword(password); err != nil {
+		return err
+	}
+	if token == "" || len(token) > 128 {
+		return auth.ErrResetInvalid
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	key := auth.HashToken(token)
+	reset, ok := d.resets[key]
+	if !ok || !reset.expires.After(time.Now()) {
+		delete(d.resets, key)
+		return auth.ErrResetInvalid
+	}
+	delete(d.resets, key)
+	for i, admin := range d.admins {
+		if admin.ID != reset.adminID {
+			continue
+		}
+		d.passwords[admin.Email] = password
+		d.admins[i].MustChangePassword = false
+		for hash, id := range d.sessions {
+			if id == admin.ID {
+				delete(d.sessions, hash)
+			}
+		}
+		return nil
+	}
+	return auth.ErrResetInvalid
 }
 
 func (d *memoryDirectory) SetPassword(ctx context.Context, email, password string) error {
