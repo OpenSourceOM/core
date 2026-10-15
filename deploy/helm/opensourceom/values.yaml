@@ -58,7 +58,8 @@ resources:
 # collector is enabled and credentials are set (a static key, an existing
 # Secret, or serviceAccountAuth). Kubernetes is off unless enabled; without
 # a kubeconfig Secret the chart creates a read-only ServiceAccount for this
-# cluster. `om scan demo` is not scheduled.
+# cluster. `om scan demo` and `om scan workload` are not scheduled.
+# The workload scan mounts disks and runs on an EC2 instance in the account.
 scan:
   schedule: "0 */6 * * *"
   successfulJobsHistoryLimit: 3

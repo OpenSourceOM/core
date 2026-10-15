@@ -679,6 +679,13 @@ func TestS3CopiesSensitivityTag(t *testing.T) {
 	assertSensitivity("logs", "", false)
 }
 
+func TestWorkloadNodeID(t *testing.T) {
+	c := &Collector{Region: "us-east-1", AccountID: "111122223333"}
+	if c.nodeID("workload", "i-1") != WorkloadNodeID("111122223333", "us-east-1", "i-1") {
+		t.Fatalf("id = %s", c.nodeID("workload", "i-1"))
+	}
+}
+
 func testSecurityGroup(id string, open bool) ec2types.SecurityGroup {
 	sg := ec2types.SecurityGroup{
 		GroupId:   aws.String(id),

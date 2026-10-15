@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Architecture
 
-> **Status:** Phase 3 has shipped. The collector plugin SDK, Helm, the embedded rule pack, and cloud audit context from CloudTrail, Activity Log, and Admin Activity logs are in the tree, alongside Phase 2 CSPM rules, blast radius, Kubernetes ingest, and exports. Phase 4 (package inventory from persistent workload storage) and Phase 5 (secret and malware findings on that storage) are open. Further rule packs stay open for contributors.
+> **Status:** Phase 3 has shipped. The collector plugin SDK, Helm, the embedded rule pack, and cloud audit context from CloudTrail, Activity Log, and Admin Activity logs are in the tree, alongside Phase 2 CSPM rules, blast radius, Kubernetes ingest, and exports. Phase 4 is open: `om scan workload` inventories AWS Linux root volumes. Phase 5 (secret and malware findings on that storage) is open. Further rule packs stay open for contributors.
 
 ## Overview
 
@@ -32,6 +32,7 @@ SPDX-License-Identifier: Apache-2.0
 | Component | Location | Notes |
 |-----------|----------|-------|
 | **Collectors** | `internal/collectors/` | AWS, Azure, GCP, Kubernetes, demo; RDS, Azure SQL, and Cloud SQL are datastores; AWS emits CIS pack properties and recent CloudTrail management events; Azure emits recent Activity Log events; GCP emits recent Admin Activity audit logs |
+| **Workload packages** | `internal/workload/` | `om scan workload` reads AWS Linux root volumes and sets `packages` |
 | **Plugin SDK** | `sdk/collector`, `internal/plugins/` | External executables; `om scan plugin` |
 | **Graph store** | `internal/graph/`, `migrations/` | PostgreSQL `nodes` + `edges` |
 | **Path queries** | `internal/graph/query.go` | Named queries including `internet-to-datastore` and `internet-to-sensitive-datastore` |
@@ -51,7 +52,7 @@ SPDX-License-Identifier: Apache-2.0
 
 Findings link to affected resources via `VIOLATES` edges. CSPM and CVE findings share the same `Finding` node type but use `finding_type` and `rule_id` / `cve_id` properties for provenance.
 
-See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings-ui.md), [ADR 003](./adr/003-phase2-cspm-rbac.md), [ADR 004](./adr/004-collector-plugin-sdk.md), and [ADR 005](./adr/005-console-admins.md).
+See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings-ui.md), [ADR 003](./adr/003-phase2-cspm-rbac.md), [ADR 004](./adr/004-collector-plugin-sdk.md), [ADR 005](./adr/005-console-admins.md), and [ADR 006](./adr/006-aws-root-volume-packages.md).
 
 ## Technology choices
 
@@ -84,7 +85,9 @@ Further community rule packs (PCI and additional CIS mappings) stay open for con
 
 ## Phase 4 and Phase 5
 
-Planned, not in the tree. Phase 4 writes `packages` (CPE 2.3 names and package URLs) from persistent workload storage onto the workload node that enrichment already matches. The sources, in order, are AWS Linux root volumes, Azure VM and GCE root volumes, boot images, container image layers and function bundles, and shared filesystems (EFS, Azure Files, Filestore). The scan is opt-in. `om scan aws`, `om scan azure`, and `om scan gcp` stay read-only API collectors. The workload scan runs a worker in the account, and it stores package identifiers only.
+Phase 4 writes `packages` (CPE 2.3 names and package URLs) from persistent workload storage onto the workload node that enrichment already matches. The sources, in order, are AWS Linux root volumes, Azure VM and GCE root volumes, boot images, container image layers and function bundles, and shared filesystems (EFS, Azure Files, Filestore). The scan is opt-in. `om scan aws`, `om scan azure`, and `om scan gcp` stay read-only API collectors.
+
+`om scan workload` is the AWS root-volume scan. It runs as root on an EC2 instance in the account, snapshots the root volume, mounts the copy read-only, and stores package identifiers only. A later `om scan aws` keeps `packages`. Windows, LVM, and non-root disks are skipped. The other Phase 4 sources are still open. See [ADR 006](./adr/006-aws-root-volume-packages.md).
 
 Phase 5 adds a finding for a secret pattern or a malware signature on storage that Phase 4 reader already opened. The finding stores the kind and the path. Object bodies and database rows are in neither phase.
 

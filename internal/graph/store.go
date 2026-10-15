@@ -87,6 +87,8 @@ func upsertBatch(ctx context.Context, tx pgx.Tx, batch Batch) error {
 		if err != nil {
 			return err
 		}
+		// packages is written by the workload scan. An API scan that omits the
+		// key keeps the list already stored on the node.
 		_, err = tx.Exec(ctx, `
 			INSERT INTO nodes (id, type, name, provider, region, account_id, properties, updated_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, now())
@@ -96,7 +98,12 @@ func upsertBatch(ctx context.Context, tx pgx.Tx, batch Batch) error {
 				provider = EXCLUDED.provider,
 				region = EXCLUDED.region,
 				account_id = EXCLUDED.account_id,
-				properties = EXCLUDED.properties,
+				properties = CASE
+					WHEN jsonb_exists(EXCLUDED.properties, 'packages')
+					  OR NOT jsonb_exists(nodes.properties, 'packages')
+					THEN EXCLUDED.properties
+					ELSE EXCLUDED.properties || jsonb_build_object('packages', nodes.properties->'packages')
+				END,
 				updated_at = now()
 		`, node.ID, node.Type, node.Name, node.Provider, node.Region, node.AccountID, props)
 		if err != nil {
@@ -384,6 +391,31 @@ func (s *Store) InternetReachableWorkloadIDs(ctx context.Context) ([]string, err
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+// SetWorkloadPackages stores package identifiers on an existing workload.
+// A later inventory upsert that omits packages keeps this list.
+func (s *Store) SetWorkloadPackages(ctx context.Context, id string, packages []string) error {
+	if packages == nil {
+		packages = []string{}
+	}
+	raw, err := json.Marshal(packages)
+	if err != nil {
+		return err
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE nodes
+		SET properties = jsonb_set(COALESCE(properties, '{}'::jsonb), '{packages}', $2::jsonb, true),
+		    updated_at = now()
+		WHERE id = $1 AND type = $3
+	`, id, string(raw), NodeWorkload)
+	if err != nil {
+		return fmt.Errorf("set packages on %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("workload %s is not in the graph", id)
+	}
+	return nil
 }
 
 func (s *Store) GetNode(ctx context.Context, id string) (Node, error) {

@@ -21,7 +21,7 @@ OpenSourceOM Core is the platform behind [opensourceom.org](https://opensourceom
 
 Traditional scanners flood you with CVEs and misconfigurations. OpenSourceOM connects the dots — showing which findings sit on paths from the internet to your sensitive data and privileged identities.
 
-> **Status:** Phase 3 has shipped. Phase 4 (workload package inventory) and Phase 5 (secret and malware findings on that storage) are open. Further rule packs stay open for contributors ([#10](https://github.com/OpenSourceOM/core/issues/10)). See the [roadmap](./docs/ROADMAP.md).
+> **Status:** Phase 3 has shipped. Phase 4 is open: `om scan workload` inventories AWS Linux root volumes. Phase 5 (secret and malware findings on that storage) is open. Further rule packs stay open for contributors ([#10](https://github.com/OpenSourceOM/core/issues/10)). See the [roadmap](./docs/ROADMAP.md).
 
 ## Why this exists
 
@@ -93,6 +93,8 @@ go build -o om ./cmd/om
 # Or scan cloud / cluster inventory
 export AWS_REGION=us-east-1
 ./om scan aws
+# On an EC2 instance in that account, as root, after the API scan:
+# sudo -E ./om scan workload
 ./om scan k8s      # requires kubeconfig
 
 # Or ingest a custom collector (stdout is a graph batch)
@@ -133,6 +135,7 @@ An API token is created only when an admin asks for one, from the console or wit
 ```bash
 ./om scan demo     # sample environment, no credentials
 ./om scan aws
+./om scan workload # root on an EC2 worker; Linux root-volume packages
 ./om scan azure    # requires AZURE_SUBSCRIPTION_ID + az login
 ./om scan gcp      # requires GCP_PROJECT_ID + ADC
 ./om scan k8s      # requires kubeconfig or in-cluster credentials
@@ -162,7 +165,7 @@ Full documentation: [opensourceom.org](https://opensourceom.org) (docs at [opens
 | **1** | Attack path queries, CVE enrichment, web UI, Azure/GCP collectors |
 | **2** | CSPM rules, blast radius, K8s connector, exports |
 | **3** | Plugin SDK, Helm, embedded rule pack, demo graph, inventory-backed CVEs, crown-jewel datastores, attack-path findings, and cloud audit context (CloudTrail, Activity Log, Admin Activity). Shipped. |
-| **4** | Package inventory from persistent workload storage: root volumes, boot images, container layers, function bundles, shared filesystems. Open. |
+| **4** | Package inventory from persistent workload storage. AWS Linux root volumes ship with `om scan workload`. The other clouds, boot images, container layers, function bundles, and shared filesystems are open. |
 | **5** | Secret and malware findings on storage Phase 4 already opens. Kind and path only. Open. |
 
 Details: [docs/ROADMAP.md](./docs/ROADMAP.md)
