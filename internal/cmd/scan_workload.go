@@ -36,7 +36,7 @@ Run it as root on an EC2 instance in that account. The command snapshots each ro
 
 om scan aws stays a read-only API scan. A later om scan aws keeps packages already stored on the workload. Snapshots and volumes are tagged opensourceom:scan=workload, which is how to find one left behind by a killed process.
 
-This command reads Linux root volumes. Windows instances are skipped. LVM and disks other than the root volume are skipped. Azure, GCE, boot images, container layers, function bundles, and shared filesystems are later scans.
+This command reads Linux root volumes. Windows instances are skipped. LVM and disks other than the root volume are skipped. Azure OS disks are "om scan workload azure". GCE boot disks are "om scan workload gcp". Boot images, container layers, function bundles, and shared filesystems are later scans.
 
 IAM actions:
   ` + strings.Join(awsv.Permissions, "\n  ")

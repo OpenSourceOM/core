@@ -3,6 +3,17 @@
 
 package workload
 
+import "errors"
+
+// Reason returns a skip message when err leaves the workload's packages unchanged.
+func Reason(err error) (string, bool) {
+	var reason interface{ SkipReason() string }
+	if err != nil && errors.As(err, &reason) {
+		return reason.SkipReason(), true
+	}
+	return "", false
+}
+
 // Skip is a condition that leaves the workload's packages unchanged.
 type Skip string
 
