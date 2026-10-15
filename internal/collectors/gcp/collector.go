@@ -400,7 +400,16 @@ func bindingsFromBucketPolicy(bucket string, policy *iam.Policy) []gcpBinding {
 	return bindings
 }
 
+// WorkloadNodeID is the graph id om scan gcp stores for a GCE instance.
+// zone is the instance zone, which the collector stores in the region field.
+func WorkloadNodeID(projectID, zone, name string) string {
+	return fmt.Sprintf("gcp:%s:%s:workload:%s", projectID, zone, name)
+}
+
 func (c *Collector) nodeID(region, kind, resource string) string {
+	if kind == "workload" {
+		return WorkloadNodeID(c.ProjectID, region, resource)
+	}
 	return fmt.Sprintf("gcp:%s:%s:%s:%s", c.ProjectID, region, kind, resource)
 }
 

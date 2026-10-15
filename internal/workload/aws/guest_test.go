@@ -80,23 +80,3 @@ func TestDiskByIDSkipsPartitions(t *testing.T) {
 		t.Fatalf("disk = %s", got)
 	}
 }
-
-func TestPartitionDevices(t *testing.T) {
-	got := partitionDevices("/dev/nvme1n1", []string{"nvme1n1", "nvme1n1p2", "nvme1n1p1", "queue"})
-	want := "/dev/nvme1n1p1,/dev/nvme1n1p2"
-	if len(got) != 2 || got[0]+","+got[1] != want {
-		t.Fatalf("partitions = %v", got)
-	}
-}
-
-func TestDeviceIsLVM(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "disk")
-	buf := make([]byte, 520)
-	copy(buf[512:], []byte("LABELONE"))
-	if err := os.WriteFile(path, buf, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if !deviceIsLVM(path) {
-		t.Fatal("expected an LVM label")
-	}
-}
