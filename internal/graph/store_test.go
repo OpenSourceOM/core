@@ -5,6 +5,7 @@ package graph_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/OpenSourceOM/core/internal/graph"
@@ -116,6 +117,86 @@ func TestReplaceInventoryKeepsOtherNamespaces(t *testing.T) {
 
 	requireNode(t, ctx, store, prod, false)
 	requireNode(t, ctx, store, dev, true)
+}
+
+func TestUpsertKeepsPackagesWhenScanOmitsThem(t *testing.T) {
+	ctx := context.Background()
+	store := openQueryFixture(t)
+	const id = "aws:111122223333:us-east-1:workload:i-1"
+	original := []any{
+		"cpe:2.3:a:openssl:openssl:1.1.1k:*:*:*:*:*:*:*",
+		"pkg:rpm/amzn/openssl@1.1.1k-7.amzn2",
+	}
+	node := graph.Node{
+		ID: id, Type: graph.NodeWorkload, Name: "web", Provider: "aws",
+		Region: "us-east-1", AccountID: "111122223333",
+		Properties: map[string]any{"public_ip": true, "packages": original},
+	}
+	if err := store.UpsertBatch(ctx, graph.Batch{Nodes: []graph.Node{node}}); err != nil {
+		t.Fatal(err)
+	}
+
+	node.Properties = map[string]any{"public_ip": false, "image": "ami-1"}
+	if err := store.UpsertBatch(ctx, graph.Batch{Nodes: []graph.Node{node}}); err != nil {
+		t.Fatal(err)
+	}
+	got := mustNode(t, ctx, store, id)
+	if got.Properties["public_ip"] != false || got.Properties["image"] != "ami-1" {
+		t.Fatalf("properties = %#v", got.Properties)
+	}
+	if joinPackages(t, got.Properties) != "cpe:2.3:a:openssl:openssl:1.1.1k:*:*:*:*:*:*:* pkg:rpm/amzn/openssl@1.1.1k-7.amzn2" {
+		t.Fatalf("packages = %#v", got.Properties["packages"])
+	}
+
+	if err := store.SetWorkloadPackages(ctx, id, []string{"pkg:deb/ubuntu/openssl@1.1.1n-0ubuntu1"}); err != nil {
+		t.Fatal(err)
+	}
+	got = mustNode(t, ctx, store, id)
+	if got.Properties["image"] != "ami-1" {
+		t.Fatalf("image was dropped: %#v", got.Properties)
+	}
+	if joinPackages(t, got.Properties) != "pkg:deb/ubuntu/openssl@1.1.1n-0ubuntu1" {
+		t.Fatalf("packages = %#v", got.Properties["packages"])
+	}
+
+	node.Properties = map[string]any{"public_ip": false, "packages": []any{}}
+	if err := store.UpsertBatch(ctx, graph.Batch{Nodes: []graph.Node{node}}); err != nil {
+		t.Fatal(err)
+	}
+	got = mustNode(t, ctx, store, id)
+	if joinPackages(t, got.Properties) != "" {
+		t.Fatalf("packages = %#v", got.Properties["packages"])
+	}
+
+	if err := store.SetWorkloadPackages(ctx, "missing", []string{"pkg:deb/debian/bash@5.0"}); err == nil {
+		t.Fatal("expected a missing workload to fail")
+	}
+}
+
+func mustNode(t *testing.T, ctx context.Context, store *graph.Store, id string) graph.Node {
+	t.Helper()
+	node, err := store.GetNode(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return node
+}
+
+func joinPackages(t *testing.T, props map[string]any) string {
+	t.Helper()
+	raw, ok := props["packages"].([]any)
+	if !ok {
+		t.Fatalf("packages = %#v", props["packages"])
+	}
+	parts := make([]string, len(raw))
+	for i, item := range raw {
+		s, ok := item.(string)
+		if !ok {
+			t.Fatalf("package %d = %#v", i, item)
+		}
+		parts[i] = s
+	}
+	return strings.Join(parts, " ")
 }
 
 func findingNode(id, resource, account, findingType string) graph.Node {

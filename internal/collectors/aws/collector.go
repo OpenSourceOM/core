@@ -450,7 +450,15 @@ func ec2Platform(instance ec2types.Instance) string {
 	return "linux/unix"
 }
 
+// WorkloadNodeID is the graph id om scan aws stores for an EC2 instance.
+func WorkloadNodeID(accountID, region, instanceID string) string {
+	return fmt.Sprintf("aws:%s:%s:workload:%s", accountID, region, instanceID)
+}
+
 func (c *Collector) nodeID(kind, resource string) string {
+	if kind == "workload" {
+		return WorkloadNodeID(c.AccountID, c.Region, resource)
+	}
 	return fmt.Sprintf("aws:%s:%s:%s:%s", c.AccountID, c.Region, kind, resource)
 }
 
