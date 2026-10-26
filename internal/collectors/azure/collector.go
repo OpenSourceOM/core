@@ -377,7 +377,15 @@ func (c *Collector) resolveRoleDefinitions(ctx context.Context, cred azcore.Toke
 	return roles, nil
 }
 
+// WorkloadNodeID is the graph id om scan azure stores for a virtual machine.
+func WorkloadNodeID(subscriptionID, location, name string) string {
+	return fmt.Sprintf("azure:%s:%s:workload:%s", subscriptionID, location, name)
+}
+
 func (c *Collector) nodeID(kind, resource string) string {
+	if kind == "workload" {
+		return WorkloadNodeID(c.SubscriptionID, c.Location, resource)
+	}
 	return fmt.Sprintf("azure:%s:%s:%s:%s", c.SubscriptionID, c.Location, kind, resource)
 }
 
