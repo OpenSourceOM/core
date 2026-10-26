@@ -4,7 +4,7 @@ go 1.27.2
 
 require (
 	cloud.google.com/go/compute/metadata v0.9.1
-	cloud.google.com/go/iam v1.12.0
+	cloud.google.com/go/iam v1.15.0
 	cloud.google.com/go/storage v1.69.0
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.15.0
