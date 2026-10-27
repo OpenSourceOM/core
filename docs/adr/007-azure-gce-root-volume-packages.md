@@ -29,7 +29,7 @@ Azure copies are tagged `opensourceom:scan=workload` and are created with public
 
 The Azure actions are `Microsoft.Compute/snapshots/write`, `Microsoft.Compute/snapshots/delete`, `Microsoft.Compute/disks/write`, `Microsoft.Compute/disks/delete`, `Microsoft.Compute/virtualMachines/attachDetachDataDisks/action`, and `Microsoft.KeyVault/vaults/keys/unwrap/action` (with `keys/wrap/action` when the snapshot keeps the key). The GCP permissions are `compute.disks.createSnapshot`, `compute.snapshots.delete`, `compute.disks.create`, `compute.disks.delete`, `compute.instances.attachDisk`, `compute.instances.detachDisk`, and `cloudkms.cryptoKeyVersions.useToDecrypt` (with `useToEncrypt`). The API collectors do not gain these permissions.
 
-Boot images, container layers, function bundles, and shared filesystems stay on later Phase 4 issues. Secret and malware findings stay on Phase 5.
+Boot images are [ADR 008](./008-boot-image-packages.md). Container layers, function bundles, and shared filesystems stay on later Phase 4 issues. Secret and malware findings stay on Phase 5.
 
 ## Consequences
 

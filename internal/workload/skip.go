@@ -26,4 +26,7 @@ const (
 	ErrNoPackages Skip = "no package database"
 	// ErrLVM means the root volume is an LVM physical volume.
 	ErrLVM Skip = "LVM root volumes are not scanned"
+	// ErrImageDenied means the account cannot copy this boot image.
+	// Marketplace and shared images the account is not allowed to snapshot use it.
+	ErrImageDenied Skip = "account cannot snapshot this image"
 )

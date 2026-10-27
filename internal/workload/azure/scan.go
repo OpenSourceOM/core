@@ -51,6 +51,14 @@ type Machine struct {
 	Ephemeral         bool
 	ProvisioningState string
 	DataLUNs          []int32
+	// ImageKey is shared by instances launched from one boot image.
+	ImageKey     string
+	ImageID      string
+	ImageSource  string
+	Publisher    string
+	Offer        string
+	SKU          string
+	ImageVersion string
 }
 
 // Result is one VM after the snapshot and disk are deleted.

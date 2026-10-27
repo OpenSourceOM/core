@@ -34,7 +34,7 @@ Run it as root on a GCE instance in that project. The command snapshots each per
 
 om scan gcp stays a read-only API scan. A later om scan gcp keeps packages already stored on the workload. Snapshots and disks are labeled opensourceom-scan=workload, which is how to find one left behind by a killed process. Label keys cannot contain a colon.
 
-This command reads Linux boot disks. Windows instances are skipped. Local SSD boot disks, customer-supplied encryption keys, LVM, and extra disks are skipped. Instances in another region are skipped; run the command on an instance in that region.
+This command reads Linux boot disks. Windows instances are skipped. Local SSD boot disks, customer-supplied encryption keys, LVM, and extra disks are skipped. Instances in another region are skipped; run the command on an instance in that region. Boot images are "om scan workload image gcp".
 
 The graph id matches om scan gcp: gcp:<GCP_PROJECT_ID>:<zone>:workload:<instance name>.
 

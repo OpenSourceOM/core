@@ -340,6 +340,10 @@ type fakeEC2 struct {
 	attachInputs  []*ec2.AttachVolumeInput
 	stuckSnapshot bool
 	delaySnapshot bool
+	images        []ec2types.Image
+	shared        []ec2types.Image
+	imageErr      map[string]error
+	denySnap      map[string]error
 }
 
 func newFake(instances []ec2types.Instance) *fakeEC2 {
@@ -407,8 +411,37 @@ func (f *fakeEC2) DescribeSnapshots(_ context.Context, in *ec2.DescribeSnapshots
 	}, nil
 }
 
+func (f *fakeEC2) DescribeImages(_ context.Context, in *ec2.DescribeImagesInput, _ ...func(*ec2.Options)) (*ec2.DescribeImagesOutput, error) {
+	f.log = append(f.log, "DescribeImages")
+	if in == nil {
+		in = &ec2.DescribeImagesInput{}
+	}
+	if len(in.ImageIds) > 0 {
+		for _, id := range in.ImageIds {
+			if err := f.imageErr[id]; err != nil {
+				return nil, err
+			}
+		}
+		want := map[string]bool{}
+		for _, id := range in.ImageIds {
+			want[id] = true
+		}
+		var imgs []ec2types.Image
+		for _, img := range append(append([]ec2types.Image{}, f.images...), f.shared...) {
+			if want[aws.ToString(img.ImageId)] {
+				imgs = append(imgs, img)
+			}
+		}
+		return &ec2.DescribeImagesOutput{Images: imgs}, nil
+	}
+	return &ec2.DescribeImagesOutput{Images: f.images}, nil
+}
+
 func (f *fakeEC2) CreateVolume(_ context.Context, in *ec2.CreateVolumeInput, _ ...func(*ec2.Options)) (*ec2.CreateVolumeOutput, error) {
 	f.log = append(f.log, "CreateVolume")
+	if err := f.denySnap[aws.ToString(in.SnapshotId)]; err != nil {
+		return nil, err
+	}
 	f.volInputs = append(f.volInputs, in)
 	f.volN++
 	id := fmt.Sprintf("vol-scan-%d", f.volN)

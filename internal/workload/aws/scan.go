@@ -68,6 +68,7 @@ type Scanner struct {
 
 type ec2API interface {
 	DescribeInstances(context.Context, *ec2.DescribeInstancesInput, ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
+	DescribeImages(context.Context, *ec2.DescribeImagesInput, ...func(*ec2.Options)) (*ec2.DescribeImagesOutput, error)
 	CreateSnapshot(context.Context, *ec2.CreateSnapshotInput, ...func(*ec2.Options)) (*ec2.CreateSnapshotOutput, error)
 	DescribeSnapshots(context.Context, *ec2.DescribeSnapshotsInput, ...func(*ec2.Options)) (*ec2.DescribeSnapshotsOutput, error)
 	CreateVolume(context.Context, *ec2.CreateVolumeInput, ...func(*ec2.Options)) (*ec2.CreateVolumeOutput, error)
@@ -453,7 +454,7 @@ func isNotFound(err error) bool {
 		return false
 	}
 	switch api.ErrorCode() {
-	case "InvalidSnapshot.NotFound", "InvalidVolume.NotFound":
+	case "InvalidSnapshot.NotFound", "InvalidVolume.NotFound", "InvalidAMIID.NotFound", "InvalidAMIID.Malformed":
 		return true
 	default:
 		return false

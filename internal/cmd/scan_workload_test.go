@@ -45,6 +45,28 @@ func TestScanWorkloadRegistered(t *testing.T) {
 			t.Errorf("gcp help missing %s", action)
 		}
 	}
+	image := commandByName(t, workloadCmd, "image")
+	if image.Runnable() {
+		t.Fatal("om scan workload image runs a scan; name the cloud")
+	}
+	awsImage := commandByName(t, image, "aws")
+	for _, action := range awsv.ImagePermissions {
+		if !strings.Contains(awsImage.Long, action) {
+			t.Errorf("image aws help missing %s", action)
+		}
+	}
+	azureImage := commandByName(t, image, "azure")
+	for _, action := range azurev.ImagePermissions {
+		if !strings.Contains(azureImage.Long, action) {
+			t.Errorf("image azure help missing %s", action)
+		}
+	}
+	gcpImage := commandByName(t, image, "gcp")
+	for _, action := range gcpv.ImagePermissions {
+		if !strings.Contains(gcpImage.Long, action) {
+			t.Errorf("image gcp help missing %s", action)
+		}
+	}
 }
 
 func commandByName(t *testing.T, parent *cobra.Command, name string) *cobra.Command {

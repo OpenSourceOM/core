@@ -32,7 +32,7 @@ An inventory upsert that omits `packages` keeps the list already stored. `om sca
 
 The IAM actions are `ec2:CreateSnapshot`, `ec2:AttachVolume`, `ec2:DeleteSnapshot`, `ec2:DeleteVolume`, the describe and tag calls around that lifecycle, and `kms:CreateGrant` plus `kms:Decrypt` (with `kms:DescribeKey`, `kms:GenerateDataKeyWithoutPlaintext`, and `kms:ReEncrypt*`) for an encrypted root volume. `om scan aws` does not gain these actions.
 
-Azure, GCE, boot images, container layers, function bundles, and shared filesystems stay on later Phase 4 issues. Secret and malware findings stay on Phase 5, after this reader exists.
+Azure and GCE root volumes are [ADR 007](./007-azure-gce-root-volume-packages.md). Boot images are [ADR 008](./008-boot-image-packages.md). Container layers, function bundles, and shared filesystems stay on later Phase 4 issues. Secret and malware findings stay on Phase 5, after this reader exists.
 
 ## Consequences
 
