@@ -22,7 +22,7 @@ func LookupWorker(ctx context.Context) (Worker, error) {
 	client := imds.NewFromConfig(cfg)
 	id, err := metadata(ctx, client, "instance-id")
 	if err != nil {
-		return Worker{}, fmt.Errorf("om scan workload runs on an EC2 instance in this account: %w", err)
+		return Worker{}, fmt.Errorf("om scan workload aws runs on an EC2 instance in this account: %w", err)
 	}
 	az, err := metadata(ctx, client, "placement/availability-zone")
 	if err != nil {
