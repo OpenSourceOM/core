@@ -474,6 +474,8 @@ func publicV1(r *http.Request) bool {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/health":
 		return true
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/version":
+		return true
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/auth/session":
 		return true
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/logout":

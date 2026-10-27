@@ -77,6 +77,40 @@ func TestHandleHealth(t *testing.T) {
 	}
 }
 
+func TestVersionIsPublic(t *testing.T) {
+	handler := (&Server{}).Handler()
+	request := httptest.NewRequest(http.MethodGet, "/v1/version", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("cache-control = %q", got)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["name"] != "OpenSourceOM Core" {
+		t.Fatalf("name = %v", body["name"])
+	}
+	for _, key := range []string{"version", "commit", "commit_short", "date", "modified"} {
+		if _, ok := body[key]; !ok {
+			t.Fatalf("missing %s in %#v", key, body)
+		}
+	}
+	if body["version"] == "" || body["commit"] == "" {
+		t.Fatalf("empty build identity: %#v", body)
+	}
+	if body["version"] == "dev" {
+		if _, ok := body["release_url"]; ok {
+			t.Fatal("dev builds must not advertise a release")
+		}
+	}
+}
+
 func TestPersonalTokenGatesV1Routes(t *testing.T) {
 	directory := newMemoryDirectory()
 	directory.rememberToken("secret", auth.Admin{ID: "admin-1", Provider: auth.ProviderGitHub, Subject: "1", Login: "ada"})
@@ -92,6 +126,7 @@ func TestPersonalTokenGatesV1Routes(t *testing.T) {
 		wantStatus int
 	}{
 		{name: "health open without key", method: http.MethodGet, path: "/v1/health", wantStatus: http.StatusOK},
+		{name: "version open without key", method: http.MethodGet, path: "/v1/version", wantStatus: http.StatusOK},
 		{name: "rules list denied without key", method: http.MethodGet, path: "/v1/rules", wantStatus: http.StatusUnauthorized},
 		{name: "rules list allowed with api key", method: http.MethodGet, path: "/v1/rules", header: "X-API-Key", value: "secret", wantStatus: http.StatusOK},
 		{name: "rules list allowed with bearer", method: http.MethodGet, path: "/v1/rules", header: "Authorization", value: "Bearer secret", wantStatus: http.StatusOK},

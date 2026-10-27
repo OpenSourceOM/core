@@ -20,6 +20,7 @@ import (
 	"github.com/OpenSourceOM/core/internal/export"
 	"github.com/OpenSourceOM/core/internal/graph"
 	"github.com/OpenSourceOM/core/internal/rules"
+	"github.com/OpenSourceOM/core/internal/version"
 )
 
 const (
@@ -58,6 +59,7 @@ func NewServer(store *graph.Store) *Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
+	mux.HandleFunc("GET /v1/version", s.handleVersion)
 	mux.HandleFunc("POST /v1/ingest", s.handleIngest)
 	mux.HandleFunc("GET /v1/graph/stats", s.handleStats)
 	mux.HandleFunc("GET /v1/graph/query", s.handleQuery)
@@ -129,6 +131,11 @@ func (s *Server) ListenAndServe(addr string) error {
 	}
 	log.Printf("api listening on %s", addr)
 	return server.ListenAndServe()
+}
+
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, version.Current())
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

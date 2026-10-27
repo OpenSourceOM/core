@@ -57,7 +57,7 @@ Full design: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 ## Repository layout
 
 ```
-cmd/om/              `om` CLI (migrate, serve, scan, enrich, rules, identity, export, graph, paths)
+cmd/om/              `om` CLI (version, migrate, serve, scan, enrich, rules, identity, export, graph, paths)
 sdk/collector/       Public SDK for external collector plugins
 examples/collector/  Sample plugin (`om scan plugin`)
 internal/collectors/ AWS, Azure, GCP, Kubernetes, demo graph
@@ -86,6 +86,9 @@ docker compose up -d
 
 # Build the CLI
 go build -o om ./cmd/om
+
+# Print this build. A release says 0.5.0. Uncommitted changes add +dirty.
+./om version
 
 # Load the sample graph (no cloud credentials)
 ./om scan demo
@@ -128,13 +131,15 @@ open http://localhost:8080
 
 The API image compiles `github.com/aws/aws-sdk-go-v2/service/ec2`. Give Docker at least 6 GiB of RAM.
 
+The header shows the version of the running build. Open it, or Settings → About, for the git commit and a link to that commit. `GET /v1/version` returns the same information. A release shows its version, such as 0.5.0. A git checkout of that release shows the same version, with `+dirty` when the tree has uncommitted changes.
+
 The console signs people in with an email and password. While no admin exists, the page asks you to create one. Keep the API port private until you do. Set `OM_ADMIN_EMAIL` when that first address should be fixed in advance. `om admin create --email you@example.com` does the same from the machine before the port is reachable.
 
 An admin adds the next person from the console. That person gets a temporary password, shown once, and chooses their own at the next sign-in. SMTP is optional. When it is set, the temporary password is emailed, and a forgotten password can be reset from a one-hour link. Google and GitHub buttons appear only when those client credentials are set, and the provider email must match an existing admin. Every console account is an admin. Two-factor authentication is optional per admin.
 
-An API token is created only when an admin asks for one, from the console or with `om token create --email you@example.com`. It is printed once. Collectors, CI, and `curl` send it as `Authorization: Bearer` or `X-API-Key` on every `/v1` call except health, the session probe, and logout. The CLI talks to Postgres and does not use the token. A token cannot add or remove admins. `om token rotate --email you@example.com` replaces it.
+An API token is created only when an admin asks for one, from the console or with `om token create --email you@example.com`. It is printed once. Collectors, CI, and `curl` send it as `Authorization: Bearer` or `X-API-Key` on every `/v1` call except health, version, the session probe, and logout. The CLI talks to Postgres and does not use the token. A token cannot add or remove admins. `om token rotate --email you@example.com` replaces it.
 
-**API endpoints:** `GET /v1/health`, `POST /v1/ingest`, `GET /v1/findings`, `GET /v1/graph/snapshot`, `POST /v1/rules/run`, `GET /v1/identity/blast-radius`
+**API endpoints:** `GET /v1/health`, `GET /v1/version`, `POST /v1/ingest`, `GET /v1/findings`, `GET /v1/graph/snapshot`, `POST /v1/rules/run`, `GET /v1/identity/blast-radius`
 
 **Multi-cloud scan:**
 
