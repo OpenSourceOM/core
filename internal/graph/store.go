@@ -6,6 +6,7 @@ package graph
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -391,6 +392,23 @@ func (s *Store) InternetReachableWorkloadIDs(ctx context.Context) ([]string, err
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+// MergeWorkloadPackages adds package identifiers on an existing workload.
+// Identifiers already stored stay, including ones the added list does not contain.
+// A later inventory upsert that omits packages keeps the merged list.
+func (s *Store) MergeWorkloadPackages(ctx context.Context, id string, packages []string) error {
+	node, err := s.GetNode(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("workload %s is not in the graph", id)
+		}
+		return err
+	}
+	if node.Type != NodeWorkload {
+		return fmt.Errorf("workload %s is not in the graph", id)
+	}
+	return s.SetWorkloadPackages(ctx, id, UnionPackages(packageList(node.Properties["packages"]), packages))
 }
 
 // SetWorkloadPackages stores package identifiers on an existing workload.

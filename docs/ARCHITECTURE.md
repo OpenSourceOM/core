@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Architecture
 
-> **Status:** Phase 3 has shipped. The collector plugin SDK, Helm, the embedded rule pack, and cloud audit context from CloudTrail, Activity Log, and Admin Activity logs are in the tree, alongside Phase 2 CSPM rules, blast radius, Kubernetes ingest, and exports. Phase 4 is open: `om scan workload aws`, `om scan workload azure`, and `om scan workload gcp` inventory Linux root volumes. Phase 5 (secret and malware findings on that storage) is open. Further rule packs stay open for contributors.
+> **Status:** Phase 3 has shipped. The collector plugin SDK, Helm, the embedded rule pack, and cloud audit context from CloudTrail, Activity Log, and Admin Activity logs are in the tree, alongside Phase 2 CSPM rules, blast radius, Kubernetes ingest, and exports. Phase 4 is open: `om scan workload` inventories Linux root volumes and boot images. Phase 5 (secret and malware findings on that storage) is open. Further rule packs stay open for contributors.
 
 ## Overview
 
@@ -32,7 +32,7 @@ SPDX-License-Identifier: Apache-2.0
 | Component | Location | Notes |
 |-----------|----------|-------|
 | **Collectors** | `internal/collectors/` | AWS, Azure, GCP, Kubernetes, demo; RDS, Azure SQL, and Cloud SQL are datastores; AWS emits CIS pack properties and recent CloudTrail management events; Azure emits recent Activity Log events; GCP emits recent Admin Activity audit logs |
-| **Workload packages** | `internal/workload/` | `om scan workload aws`, `om scan workload azure`, and `om scan workload gcp` set `packages` from Linux root volumes |
+| **Workload packages** | `internal/workload/` | `om scan workload` sets `packages` from Linux root volumes and from boot images |
 | **Plugin SDK** | `sdk/collector`, `internal/plugins/` | External executables; `om scan plugin` |
 | **Graph store** | `internal/graph/`, `migrations/` | PostgreSQL `nodes` + `edges` |
 | **Path queries** | `internal/graph/query.go` | Named queries including `internet-to-datastore` and `internet-to-sensitive-datastore` |
@@ -52,7 +52,7 @@ SPDX-License-Identifier: Apache-2.0
 
 Findings link to affected resources via `VIOLATES` edges. CSPM and CVE findings share the same `Finding` node type but use `finding_type` and `rule_id` / `cve_id` properties for provenance.
 
-See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings-ui.md), [ADR 003](./adr/003-phase2-cspm-rbac.md), [ADR 004](./adr/004-collector-plugin-sdk.md), [ADR 005](./adr/005-console-admins.md), [ADR 006](./adr/006-aws-root-volume-packages.md), and [ADR 007](./adr/007-azure-gce-root-volume-packages.md).
+See [ADR 001](./adr/001-graph-schema-v0.md), [ADR 002](./adr/002-phase1-findings-ui.md), [ADR 003](./adr/003-phase2-cspm-rbac.md), [ADR 004](./adr/004-collector-plugin-sdk.md), [ADR 005](./adr/005-console-admins.md), [ADR 006](./adr/006-aws-root-volume-packages.md), [ADR 007](./adr/007-azure-gce-root-volume-packages.md), and [ADR 008](./adr/008-boot-image-packages.md).
 
 ## Technology choices
 
@@ -87,7 +87,7 @@ Further community rule packs (PCI and additional CIS mappings) stay open for con
 
 Phase 4 writes `packages` (CPE 2.3 names and package URLs) from persistent workload storage onto the workload node that enrichment already matches. The sources, in order, are AWS Linux root volumes, Azure VM and GCE root volumes, boot images, container image layers and function bundles, and shared filesystems (EFS, Azure Files, Filestore). The scan is opt-in. `om scan aws`, `om scan azure`, and `om scan gcp` stay read-only API collectors.
 
-`om scan workload aws` is the AWS root-volume scan. `om scan workload azure` and `om scan workload gcp` are the same walk for Azure OS disks and GCE boot disks. Each runs as root on a worker in that account and region, snapshots the root disk, mounts the copy read-only, and stores package identifiers only. A later API scan keeps `packages`. Windows, LVM, and non-root disks are skipped. Boot images, container layers, function bundles, and shared filesystems are still open. See [ADR 006](./adr/006-aws-root-volume-packages.md) and [ADR 007](./adr/007-azure-gce-root-volume-packages.md).
+`om scan workload aws` is the AWS root-volume scan. `om scan workload azure` and `om scan workload gcp` are the same walk for Azure OS disks and GCE boot disks. `om scan workload image aws`, `om scan workload image azure`, and `om scan workload image gcp` read each boot image once and add those package identifiers to instances launched from it. A package that exists only on an instance disk stays on that instance. Each command runs as root on a worker in that account and region, mounts a copy read-only, and stores package identifiers only. A later API scan keeps `packages`. Windows, LVM, and non-root disks are skipped. Container layers, function bundles, and shared filesystems are still open. See [ADR 006](./adr/006-aws-root-volume-packages.md), [ADR 007](./adr/007-azure-gce-root-volume-packages.md), and [ADR 008](./adr/008-boot-image-packages.md).
 
 Phase 5 adds a finding for a secret pattern or a malware signature on storage that Phase 4 reader already opened. The finding stores the kind and the path. Object bodies and database rows are in neither phase.
 

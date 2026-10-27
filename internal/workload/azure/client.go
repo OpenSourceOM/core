@@ -22,10 +22,11 @@ import (
 
 // Client snapshots managed OS disks and attaches the copy to the worker.
 type Client struct {
-	sub   string
-	vms   *armcompute.VirtualMachinesClient
-	snaps *armcompute.SnapshotsClient
-	disks *armcompute.DisksClient
+	sub    string
+	vms    *armcompute.VirtualMachinesClient
+	snaps  *armcompute.SnapshotsClient
+	disks  *armcompute.DisksClient
+	images *armcompute.ImagesClient
 }
 
 var _ API = (*Client)(nil)
@@ -48,7 +49,11 @@ func NewClient(subscriptionID string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{sub: subscriptionID, vms: vms, snaps: snaps, disks: disks}, nil
+	images, err := armcompute.NewImagesClient(subscriptionID, cred, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{sub: subscriptionID, vms: vms, snaps: snaps, disks: disks, images: images}, nil
 }
 
 func (c *Client) List(ctx context.Context, location string) ([]Machine, error) {
@@ -228,6 +233,16 @@ func machineFrom(vm *armcompute.VirtualMachine) (Machine, bool) {
 	}
 	machine.ProvisioningState = value(vm.Properties.ProvisioningState)
 	profile := vm.Properties.StorageProfile
+	if ref := profile.ImageReference; ref != nil {
+		key, id, source, publisher, offer, sku, version := imageRefOf(ref)
+		machine.ImageKey = key
+		machine.ImageID = id
+		machine.ImageSource = source
+		machine.Publisher = publisher
+		machine.Offer = offer
+		machine.SKU = sku
+		machine.ImageVersion = version
+	}
 	if profile.OSDisk != nil {
 		if profile.OSDisk.OSType != nil {
 			machine.OS = strings.ToLower(string(*profile.OSDisk.OSType))

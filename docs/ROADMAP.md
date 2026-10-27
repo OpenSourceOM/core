@@ -70,11 +70,13 @@ The path, in order:
 
 - [x] **AWS Linux root volumes** — [#102](https://github.com/OpenSourceOM/core/issues/102)
 - [x] **Azure VM and GCE root volumes** — the same walker, those snapshot APIs — [#103](https://github.com/OpenSourceOM/core/issues/103)
-- [ ] **Boot images** — an AMI and the Azure and GCE equivalents, scanned once and applied to instances launched from that image — [#104](https://github.com/OpenSourceOM/core/issues/104)
+- [x] **Boot images** — an AMI and the Azure and GCE equivalents, scanned once and applied to instances launched from that image — [#104](https://github.com/OpenSourceOM/core/issues/104)
 - [ ] **Container image layers and function bundles** — layers for images already stored on Kubernetes workloads, plus Lambda deployment packages and the Azure and GCP equivalents. No volume attach — [#105](https://github.com/OpenSourceOM/core/issues/105)
 - [ ] **Shared filesystems** — EFS, Azure Files, and Filestore, when the application is installed there and a root-volume scan would miss it — [#106](https://github.com/OpenSourceOM/core/issues/106)
 
 `om scan workload aws` reads Linux root volumes in the current AWS account. It runs as root on an EC2 instance in that account, snapshots the root volume, mounts the copy read-only, and writes CPE 2.3 names and package URLs onto `packages`. `om scan workload azure` does the same for managed OS disks from an Azure VM in that region, and `om scan workload gcp` does it for GCE boot disks from an instance in that region. A later `om scan aws`, `om scan azure`, or `om scan gcp` leaves `packages` in place. Windows, LVM, and disks other than the root volume are skipped.
+
+`om scan workload image aws` reads each AMI once, including an image no instance is running, and adds those package identifiers to every instance launched from it. `om scan workload image azure` and `om scan workload image gcp` do the same for Azure and GCE images. A package found only on an instance's own disk stays on that instance. Marketplace images the account cannot snapshot are skipped. The volume or disk created for the read is deleted. The image's own snapshot is not.
 
 Object bodies and database rows stay out. They are customer data, not the installed software. A public bucket or database is already an exposure finding from the API scan.
 

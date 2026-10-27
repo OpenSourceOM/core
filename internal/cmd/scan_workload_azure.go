@@ -34,7 +34,7 @@ Run it as root on an Azure VM in that subscription. The command snapshots each m
 
 om scan azure stays a read-only API scan. A later om scan azure keeps packages already stored on the workload. Snapshots and disks are tagged opensourceom:scan=workload, which is how to find one left behind by a killed process. The copies are created in this VM's resource group and cannot be exported.
 
-This command reads Linux OS disks. Windows VMs are skipped. Ephemeral OS disks, unmanaged VHDs, LVM, and data disks are skipped. VMs in another region are skipped; run the command on a VM in that region.
+This command reads Linux OS disks. Windows VMs are skipped. Ephemeral OS disks, unmanaged VHDs, LVM, and data disks are skipped. VMs in another region are skipped; run the command on a VM in that region. Boot images are "om scan workload image azure".
 
 The graph id matches om scan azure: azure:<AZURE_SUBSCRIPTION_ID>:<AZURE_LOCATION>:workload:<vm name>.
 

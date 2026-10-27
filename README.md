@@ -21,7 +21,7 @@ OpenSourceOM Core is the platform behind [opensourceom.org](https://opensourceom
 
 Traditional scanners flood you with CVEs and misconfigurations. OpenSourceOM connects the dots — showing which findings sit on paths from the internet to your sensitive data and privileged identities.
 
-> **Status:** Phase 3 has shipped. Phase 4 is open: `om scan workload aws`, `om scan workload azure`, and `om scan workload gcp` inventory Linux root volumes. Phase 5 (secret and malware findings on that storage) is open. Further rule packs stay open for contributors ([#10](https://github.com/OpenSourceOM/core/issues/10)). See the [roadmap](./docs/ROADMAP.md).
+> **Status:** Phase 3 has shipped. Phase 4 is open: `om scan workload` inventories Linux root volumes and boot images. Phase 5 (secret and malware findings on that storage) is open. Further rule packs stay open for contributors ([#10](https://github.com/OpenSourceOM/core/issues/10)). See the [roadmap](./docs/ROADMAP.md).
 
 ## Why this exists
 
@@ -95,9 +95,12 @@ export AWS_REGION=us-east-1
 ./om scan aws
 # On an EC2 instance in that account, as root, after the API scan:
 # sudo -E ./om scan workload aws
+# sudo -E ./om scan workload image aws
 # On an Azure VM or a GCE instance in that region, as root:
 # sudo -E ./om scan workload azure
+# sudo -E ./om scan workload image azure
 # sudo -E ./om scan workload gcp
+# sudo -E ./om scan workload image gcp
 ./om scan k8s      # requires kubeconfig
 
 # Or ingest a custom collector (stdout is a graph batch)
@@ -138,11 +141,14 @@ An API token is created only when an admin asks for one, from the console or wit
 ```bash
 ./om scan demo     # sample environment, no credentials
 ./om scan aws
-./om scan workload aws   # root on an EC2 worker; Linux root-volume packages
-./om scan azure          # requires AZURE_SUBSCRIPTION_ID + az login
-./om scan workload azure # root on an Azure VM; Linux OS-disk packages
-./om scan gcp            # requires GCP_PROJECT_ID + ADC
-./om scan workload gcp   # root on a GCE instance; Linux boot-disk packages
+./om scan workload aws         # root on an EC2 worker; Linux root-volume packages
+./om scan workload image aws   # root on an EC2 worker; AMI packages, applied to instances
+./om scan azure                # requires AZURE_SUBSCRIPTION_ID + az login
+./om scan workload azure       # root on an Azure VM; Linux OS-disk packages
+./om scan workload image azure # root on an Azure VM; boot-image packages, applied to VMs
+./om scan gcp                  # requires GCP_PROJECT_ID + ADC
+./om scan workload gcp         # root on a GCE instance; Linux boot-disk packages
+./om scan workload image gcp   # root on a GCE instance; image packages, applied to instances
 ./om scan k8s      # requires kubeconfig or in-cluster credentials
 ./om scan plugin -- ./my-collector
 ```
@@ -152,10 +158,10 @@ The CLI does not read `.env`. It defaults `POSTGRES_HOST` to `localhost`, which 
 **Kubernetes:**
 
 ```bash
-docker build -t ghcr.io/opensourceom/core:0.4.0 .
+docker build -t ghcr.io/opensourceom/core:0.5.0 .
 helm install om deploy/helm/opensourceom \
   --set postgres.password='change-me' \
-  --set image.tag=0.4.0
+  --set image.tag=0.5.0
 ```
 
 Collectors stay off until you enable one and supply credentials, an existing Secret, or `serviceAccountAuth`. The CronJob runs `om scan` against the same Postgres the API reads. `om scan demo` stays a one-shot command. See `scan` in `deploy/helm/opensourceom/values.yaml`.
@@ -170,7 +176,7 @@ Full documentation: [opensourceom.org](https://opensourceom.org) (docs at [opens
 | **1** | Attack path queries, CVE enrichment, web UI, Azure/GCP collectors |
 | **2** | CSPM rules, blast radius, K8s connector, exports |
 | **3** | Plugin SDK, Helm, embedded rule pack, demo graph, inventory-backed CVEs, crown-jewel datastores, attack-path findings, and cloud audit context (CloudTrail, Activity Log, Admin Activity). Shipped. |
-| **4** | Package inventory from persistent workload storage. AWS, Azure, and GCE Linux root volumes ship with `om scan workload aws`, `om scan workload azure`, and `om scan workload gcp`. Boot images, container layers, function bundles, and shared filesystems are open. |
+| **4** | Package inventory from persistent workload storage. Linux root volumes and boot images ship with `om scan workload`. Container layers, function bundles, and shared filesystems are open. |
 | **5** | Secret and malware findings on storage Phase 4 already opens. Kind and path only. Open. |
 
 Details: [docs/ROADMAP.md](./docs/ROADMAP.md)

@@ -54,6 +54,7 @@ type Instance struct {
 	Status      string
 	Windows     bool
 	BootSource  string
+	SourceImage string
 	Scratch     bool
 	CustomerKey bool
 	Devices     []string

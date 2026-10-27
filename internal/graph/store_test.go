@@ -173,6 +173,50 @@ func TestUpsertKeepsPackagesWhenScanOmitsThem(t *testing.T) {
 	}
 }
 
+func TestMergeWorkloadPackagesKeepsInstanceOnlyPackages(t *testing.T) {
+	ctx := context.Background()
+	store := openQueryFixture(t)
+	const (
+		web   = "aws:111122223333:us-east-1:workload:i-web"
+		api   = "aws:111122223333:us-east-1:workload:i-api"
+		image = "pkg:deb/ubuntu/openssl@1.1.1n-0ubuntu1"
+		extra = "pkg:deb/ubuntu/nginx@1.18.0-6ubuntu14"
+	)
+	if err := store.UpsertBatch(ctx, graph.Batch{Nodes: []graph.Node{
+		{
+			ID: web, Type: graph.NodeWorkload, Name: "web", Provider: "aws",
+			Region: "us-east-1", AccountID: "111122223333",
+			Properties: map[string]any{"image": "ami-golden", "packages": []any{image, extra}},
+		},
+		{
+			ID: api, Type: graph.NodeWorkload, Name: "api", Provider: "aws",
+			Region: "us-east-1", AccountID: "111122223333",
+			Properties: map[string]any{"image": "ami-golden"},
+		},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MergeWorkloadPackages(ctx, web, []string{image}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MergeWorkloadPackages(ctx, api, []string{image}); err != nil {
+		t.Fatal(err)
+	}
+	webNode := mustNode(t, ctx, store, web)
+	if webNode.Properties["image"] != "ami-golden" {
+		t.Fatalf("image = %#v", webNode.Properties["image"])
+	}
+	if joinPackages(t, webNode.Properties) != extra+" "+image {
+		t.Fatalf("web packages = %#v", webNode.Properties["packages"])
+	}
+	if joinPackages(t, mustNode(t, ctx, store, api).Properties) != image {
+		t.Fatalf("api packages = %#v", mustNode(t, ctx, store, api).Properties["packages"])
+	}
+	if err := store.MergeWorkloadPackages(ctx, "missing", []string{image}); err == nil {
+		t.Fatal("expected a missing workload to fail")
+	}
+}
+
 func mustNode(t *testing.T, ctx context.Context, store *graph.Store, id string) graph.Node {
 	t.Helper()
 	node, err := store.GetNode(ctx, id)
