@@ -158,10 +158,10 @@ The CLI does not read `.env`. It defaults `POSTGRES_HOST` to `localhost`, which 
 **Kubernetes:**
 
 ```bash
-docker build -t ghcr.io/opensourceom/core:0.4.0 .
+docker build -t ghcr.io/opensourceom/core:0.5.0 .
 helm install om deploy/helm/opensourceom \
   --set postgres.password='change-me' \
-  --set image.tag=0.4.0
+  --set image.tag=0.5.0
 ```
 
 Collectors stay off until you enable one and supply credentials, an existing Secret, or `serviceAccountAuth`. The CronJob runs `om scan` against the same Postgres the API reads. `om scan demo` stays a one-shot command. See `scan` in `deploy/helm/opensourceom/values.yaml`.
