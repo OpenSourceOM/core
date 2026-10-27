@@ -1023,7 +1023,90 @@ document.getElementById("admins-btn").addEventListener("click", () => {
   renderAdmins().catch(showConsoleError);
 });
 
+function versionLabel(info) {
+  const version = info.version || "dev";
+  if (version !== "dev" || !info.commit_short || info.commit_short === "unknown") return version;
+  const short = info.modified ? `${info.commit_short}-dirty` : info.commit_short;
+  return `dev · ${short}`;
+}
+
+function formatVersionDate(value) {
+  if (!value || value === "unknown") return "unknown";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
+  });
+}
+
+function fillAbout(info) {
+  const version = info.version || "dev";
+  const label = document.getElementById("version-label");
+  label.textContent = versionLabel(info);
+  const button = document.getElementById("about-btn");
+  button.classList.remove("hidden");
+  button.setAttribute("aria-label", `About OpenSourceOM Core, version ${version}`);
+  document.getElementById("about-version").textContent = version;
+
+  const commit = document.getElementById("about-commit");
+  commit.replaceChildren();
+  const short = info.commit_short || info.commit || "unknown";
+  if (info.commit_url) {
+    const link = document.createElement("a");
+    link.href = info.commit_url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = short;
+    if (info.commit) link.title = info.commit;
+    commit.appendChild(link);
+  } else {
+    commit.textContent = short;
+  }
+  if (info.modified && short !== "unknown" && !version.endsWith("+dirty")) {
+    commit.appendChild(document.createTextNode(" (modified)"));
+  }
+
+  document.getElementById("about-date").textContent = formatVersionDate(info.date);
+  const links = document.getElementById("about-links");
+  links.replaceChildren();
+  if (info.release_url) {
+    const notes = document.createElement("a");
+    notes.href = info.release_url;
+    notes.target = "_blank";
+    notes.rel = "noopener noreferrer";
+    notes.textContent = "Release notes";
+    links.appendChild(notes);
+  }
+}
+
+function openAbout() {
+  closeSettingsMenu();
+  const dialog = document.getElementById("about-dialog");
+  if (!dialog.open) dialog.showModal();
+}
+
+async function loadVersion() {
+  try {
+    fillAbout(await fetchJSON("/v1/version"));
+  } catch {
+    return;
+  }
+}
+
+document.getElementById("about-btn").addEventListener("click", openAbout);
+document.getElementById("about-menu-btn").addEventListener("click", openAbout);
+document.getElementById("about-dialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) event.currentTarget.close();
+});
+
 (async function init() {
+  loadVersion();
   localStorage.removeItem("om_api_key");
   try {
     const session = await fetchJSON("/v1/auth/session");

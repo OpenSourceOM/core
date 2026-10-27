@@ -13,6 +13,7 @@ var rootCmd = &cobra.Command{
 }
 
 func Execute() error {
+	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(adminCmd)

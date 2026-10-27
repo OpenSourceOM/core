@@ -29,6 +29,9 @@
         <h1 class="brand-name">OpenSource<span class="brand-accent">OM</span></h1>
         <p class="tagline">Graph-native cloud security</p>
       </div>
+      <button id="about-btn" class="version-chip hidden" type="button" aria-haspopup="dialog" aria-controls="about-dialog">
+        <span id="version-label"></span>
+      </button>
     </div>
     <div id="account" class="account hidden">
       <span id="account-label"></span>
@@ -41,6 +44,7 @@
           <button id="token-btn" type="button">Create API token</button>
           <button id="security-btn" type="button">Security</button>
           <button id="admins-btn" type="button">Admins</button>
+          <button id="about-menu-btn" type="button">About</button>
           <div class="settings-sep" role="separator"></div>
           <button id="logout-btn" type="button">Log out</button>
         </div>
@@ -129,6 +133,29 @@
       </div>
     </section>
   </main>
+
+  <dialog id="about-dialog" class="about-dialog" aria-labelledby="about-title">
+    <form method="dialog">
+      <p class="panel-kicker">About</p>
+      <h2 id="about-title">OpenSource<span class="brand-accent">OM</span> Core</h2>
+      <dl>
+        <div>
+          <dt>Version</dt>
+          <dd id="about-version">Unknown</dd>
+        </div>
+        <div>
+          <dt>Commit</dt>
+          <dd id="about-commit">Unknown</dd>
+        </div>
+        <div>
+          <dt>Date</dt>
+          <dd id="about-date">Unknown</dd>
+        </div>
+      </dl>
+      <p id="about-links" class="about-links"></p>
+      <button class="btn btn-secondary" type="submit">Close</button>
+    </form>
+  </dialog>
 
   <script src="/ui/app.js"></script>
 </body>

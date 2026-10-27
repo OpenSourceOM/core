@@ -10,6 +10,11 @@ builds:
     binary: om
     env:
       - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X github.com/OpenSourceOM/core/internal/version.version={{ .Version }}
+      - -X github.com/OpenSourceOM/core/internal/version.commit={{ .FullCommit }}
+      - -X github.com/OpenSourceOM/core/internal/version.date={{ .CommitDate }}
     goos:
       - linux
       - darwin
