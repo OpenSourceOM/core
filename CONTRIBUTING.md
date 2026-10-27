@@ -24,7 +24,7 @@ On a PR you can comment `@coderabbitai review` (incremental) or `@coderabbitai f
 
 ## Development guidelines
 
-- Keep collectors **read-only** toward cloud accounts by default. `om scan workload` (and its `azure` and `gcp` subcommands) is the opt-in exception: it may create and delete snapshots in the account, and it stores package identifiers only
+- Keep collectors **read-only** toward cloud accounts by default. `om scan workload aws`, `om scan workload azure`, and `om scan workload gcp` are the opt-in exception: they may create and delete snapshots in the account, and they store package identifiers only
 - Document graph schema changes in `docs/`
 - Prefer small, reviewable PRs
 - Add tests for graph queries and normalization logic

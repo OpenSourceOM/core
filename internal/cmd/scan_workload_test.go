@@ -24,9 +24,13 @@ func TestScanWorkloadRegistered(t *testing.T) {
 	if workloadCmd == nil {
 		t.Fatal("om scan workload is not registered")
 	}
+	if workloadCmd.Runnable() {
+		t.Fatal("om scan workload runs a scan; name the cloud")
+	}
+	aws := commandByName(t, workloadCmd, "aws")
 	for _, action := range awsv.Permissions {
-		if !strings.Contains(workloadCmd.Long, action) {
-			t.Errorf("help missing %s", action)
+		if !strings.Contains(aws.Long, action) {
+			t.Errorf("aws help missing %s", action)
 		}
 	}
 	azure := commandByName(t, workloadCmd, "azure")

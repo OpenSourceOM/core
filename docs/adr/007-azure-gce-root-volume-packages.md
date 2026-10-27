@@ -11,13 +11,13 @@ SPDX-License-Identifier: Apache-2.0
 
 ## Context
 
-[ADR 006](./006-aws-root-volume-packages.md) defined `packages` and `om scan workload` for AWS Linux root volumes. `om scan azure` and `om scan gcp` still record the virtual machine from the cloud API and do not read the OS disk, so a package installed on an Azure VM or a GCE instance never reaches `packages`.
+[ADR 006](./006-aws-root-volume-packages.md) defined `packages` and `om scan workload aws` for AWS Linux root volumes. `om scan azure` and `om scan gcp` still record the virtual machine from the cloud API and do not read the OS disk, so a package installed on an Azure VM or a GCE instance never reaches `packages`.
 
 The filesystem walk is the same. The snapshot and attach APIs are not.
 
 ## Decision
 
-`om scan workload azure` and `om scan workload gcp` are subcommands of the same opt-in scan. `om scan azure` and `om scan gcp` stay read-only.
+`om scan workload aws`, `om scan workload azure`, and `om scan workload gcp` are subcommands of the same opt-in scan. `om scan azure` and `om scan gcp` stay read-only.
 
 `om scan workload azure` runs as root on an Azure VM in the subscription. For each Linux VM in that region with a managed OS disk, it creates a snapshot and a disk in the worker's resource group and zone, attaches the disk to the worker, and mounts it read-only. `om scan workload gcp` runs as root on a GCE instance in the project. For each Linux instance in that region with a persistent boot disk, it creates a snapshot, creates a disk in the worker's zone, and attaches that disk read-only.
 

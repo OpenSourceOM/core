@@ -17,7 +17,7 @@ Reading a volume means creating a snapshot and attaching a copy. That is a write
 
 ## Decision
 
-`om scan workload` is a separate command. It runs as root on an EC2 instance in the account and region being scanned.
+`om scan workload aws` is a separate command. It runs as root on an EC2 instance in the account and region being scanned.
 
 For each Linux instance with an EBS root volume, the command:
 

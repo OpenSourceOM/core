@@ -16,7 +16,7 @@ import (
 	"github.com/aws/smithy-go"
 )
 
-// Permissions are the IAM actions om scan workload adds.
+// Permissions are the IAM actions om scan workload aws adds.
 // kms:CreateGrant and kms:Decrypt are the grant an encrypted root volume needs.
 var Permissions = []string{
 	"ec2:DescribeInstances",
