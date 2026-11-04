@@ -6,7 +6,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	azurecol "github.com/OpenSourceOM/core/internal/collectors/azure"
@@ -28,18 +27,17 @@ var scanWorkloadAzureCmd = &cobra.Command{
 }
 
 func workloadAzureLong() string {
-	return `Inventory packages on Linux OS disks in the current Azure subscription.
+	return `Inventory packages on Linux OS disks in a production Azure subscription.
 
-Run it as root on an Azure VM in that subscription. The command snapshots each managed OS disk in this VM's region, creates a disk from the snapshot in this VM's zone, attaches it, and mounts it read-only. It writes CPE 2.3 names and package URLs onto the workload node from om scan azure, then deletes the snapshot and the disk, including when a read fails. File contents stay on the disk.
+Run it as root on an Azure VM in the scanner subscription, in the same region. AZURE_SUBSCRIPTION_ID is the production subscription. The grants are in deploy/connect/azure. The command snapshots each managed OS disk into the opensourceom-snapshots resource group, creates a disk from that snapshot in this VM's resource group and zone, attaches it, and mounts it read-only. It writes CPE 2.3 names and package URLs onto the workload node from om scan azure, then deletes the snapshot and the disk, including when a read fails. File contents stay off the graph.
 
-om scan azure stays a read-only API scan. A later om scan azure keeps packages already stored on the workload. Snapshots and disks are tagged opensourceom:scan=workload, which is how to find one left behind by a killed process. The copies are created in this VM's resource group and cannot be exported.
+om scan azure stays a read-only API scan. A later om scan azure keeps packages already stored on the workload. Snapshots and disks are tagged opensourceom:scan=workload, which is how to find one left behind by a killed process. The copies cannot be exported.
 
 This command reads Linux OS disks. Windows VMs are skipped. Ephemeral OS disks, unmanaged VHDs, LVM, and data disks are skipped. VMs in another region are skipped; run the command on a VM in that region. Boot images are "om scan workload image azure".
 
 The graph id matches om scan azure: azure:<AZURE_SUBSCRIPTION_ID>:<AZURE_LOCATION>:workload:<vm name>.
 
-Azure RBAC actions:
-  ` + strings.Join(azurev.Permissions, "\n  ")
+` + granted("Production role", azurev.Permissions) + "\n\n" + granted("Scanner role", azurev.WorkerPermissions)
 }
 
 func runScanWorkloadAzure(cmd *cobra.Command, args []string) error {
@@ -65,12 +63,19 @@ func runScanWorkloadAzure(cmd *cobra.Command, args []string) error {
 	}
 	defer store.Close()
 
-	client, err := azurev.NewClient(cfg.AzureSubscriptionID)
+	prod, scannerClient, group, err := azureClients(cfg.AzureSubscriptionID, worker.SubscriptionID)
 	if err != nil {
 		return err
 	}
+	var disk azurev.API
+	if scannerClient != nil {
+		disk = scannerClient
+	}
 	scanner := &azurev.Scanner{
-		API: client,
+		API:              prod,
+		Disk:             disk,
+		ProdSubscription: cfg.AzureSubscriptionID,
+		SnapshotGroup:    group,
 		Worker: azurev.Worker{
 			Name:           worker.Name,
 			ResourceGroup:  worker.ResourceGroup,
@@ -115,5 +120,6 @@ func groupLabel(group, name string) string {
 func init() {
 	scanWorkloadAzureCmd.Flags().DurationVar(&azureWorkloadTimeout, "timeout", 30*time.Minute, "time limit for each virtual machine")
 	scanWorkloadAzureCmd.Flags().StringArrayVar(&azureWorkloadVMs, "instance", nil, "VM name, resource group/name, or resource id (repeat to scan several; the default is every VM in this region)")
+	scanWorkloadAzureCmd.Flags().StringVar(&azureSnapshotGroup, "snapshot-group", defaultAzureSnapshotGroup, "resource group in the production subscription that holds snapshots")
 	scanWorkloadCmd.AddCommand(scanWorkloadAzureCmd)
 }

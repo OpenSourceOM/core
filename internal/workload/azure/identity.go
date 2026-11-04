@@ -25,7 +25,7 @@ var metadataClient = &http.Client{
 func LookupWorker(ctx context.Context) (Worker, error) {
 	body, err := fetchMetadata(ctx)
 	if err != nil {
-		return Worker{}, fmt.Errorf("om scan workload azure runs on an Azure VM in this subscription: %w", err)
+		return Worker{}, fmt.Errorf("om scan workload azure runs on an Azure VM in the scanner subscription: %w", err)
 	}
 	worker, err := parseMetadata(body)
 	if err != nil {
@@ -81,13 +81,11 @@ func parseMetadata(body []byte) (Worker, error) {
 	return worker, nil
 }
 
-// CheckSubscription reports when this VM is in a different subscription than AZURE_SUBSCRIPTION_ID.
+// CheckSubscription reports when either subscription id is empty.
+// The worker may run in a different subscription than AZURE_SUBSCRIPTION_ID.
 func CheckSubscription(workerSub, configured string) error {
 	if workerSub == "" || configured == "" {
 		return fmt.Errorf("Azure subscription is empty")
-	}
-	if !strings.EqualFold(workerSub, configured) {
-		return fmt.Errorf("this VM is in subscription %s; set AZURE_SUBSCRIPTION_ID=%s", workerSub, workerSub)
 	}
 	return nil
 }

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	awscol "github.com/OpenSourceOM/core/internal/collectors/aws"
@@ -17,7 +16,6 @@ import (
 	awsv "github.com/OpenSourceOM/core/internal/workload/aws"
 	azurev "github.com/OpenSourceOM/core/internal/workload/azure"
 	gcpv "github.com/OpenSourceOM/core/internal/workload/gcp"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/spf13/cobra"
 )
@@ -61,46 +59,43 @@ var scanWorkloadImageGCPCmd = &cobra.Command{
 }
 
 func workloadImageAWSLong() string {
-	return `Inventory packages on boot images in the current AWS account.
+	return `Inventory packages on boot images in a production AWS account.
 
-Run it as root on an EC2 instance in that account. The command reads each AMI once: images this account owns, including ones no instance is running, and images that instances in this region were launched from. It creates a volume from the AMI root snapshot in this instance's availability zone, attaches it, and mounts it read-only. It adds those CPE 2.3 names and package URLs to packages on every workload launched from that AMI, then deletes the volume, including when a read fails. The AMI snapshot is left in place. File contents stay on the volume.
+Run it as root on an EC2 instance in the scanner account, in the same region. Pass --snapshot-role and --external-id for the role deploy/connect/aws creates in the production account. The command reads each AMI once: images that account owns, including ones no instance is running, and images that instances in this region were launched from. It shares the AMI root snapshot with the scanner account, copies it, creates a volume in this instance's availability zone, attaches it, and mounts it read-only. It adds those CPE 2.3 names and package URLs to packages on every workload launched from that AMI, then deletes the copy and removes the share, including when a read fails. The AMI snapshot is left in place. File contents stay off the graph.
 
-A package that exists only on an instance disk stays on that instance. This command does not copy it onto the image or onto another instance. om scan workload aws, which reads the instance disk, replaces packages with what is installed there. om scan aws stays a read-only API scan and keeps packages already stored. Volumes are tagged opensourceom:scan=workload.
+An encrypted snapshot needs --kms-key, a key in the scanner account. A package that exists only on an instance disk stays on that instance. om scan workload aws replaces packages with what is installed on that instance disk. om scan aws stays a read-only API scan and keeps packages already stored. Volumes and snapshot copies are tagged opensourceom:scan=workload.
 
-Windows images and instance-store images are skipped. Marketplace images this account cannot snapshot are skipped, and the command says so. Run om scan aws first so the instance nodes exist.
+Windows images and instance-store images are skipped. Marketplace images this account cannot share are skipped, and the command says so. Run om scan aws first so the instance nodes exist.
 
-IAM actions:
-  ` + strings.Join(awsv.ImagePermissions, "\n  ")
+` + granted("Production role", awsv.ImagePermissions) + "\n\n" + granted("Scanner role", awsv.WorkerPermissions)
 }
 
 func workloadImageAzureLong() string {
-	return `Inventory packages on boot images in the current Azure subscription.
+	return `Inventory packages on boot images in a production Azure subscription.
 
-Run it as root on an Azure VM in that subscription. The command reads each managed image in this VM's region once, including images no VM is running, and each image a VM in this region was launched from. It creates a disk from the image in this VM's resource group and zone, attaches it, and mounts it read-only. It adds those CPE 2.3 names and package URLs to packages on every workload launched from that image, then deletes the disk, including when a read fails. The image is left in place. File contents stay on the disk.
+Run it as root on an Azure VM in the scanner subscription, in the same region. AZURE_SUBSCRIPTION_ID is the production subscription. The grants are in deploy/connect/azure. The command reads each managed image in this region once, including images no VM is running, and each image a VM in this region was launched from. It creates a disk from the image in this VM's resource group and zone, attaches it, and mounts it read-only. It adds those CPE 2.3 names and package URLs to packages on every workload launched from that image, then deletes the disk, including when a read fails. The image is left in place. File contents stay off the graph.
 
-A package that exists only on a VM disk stays on that VM. This command does not copy it onto the image or onto another VM. om scan workload azure replaces packages with what is installed on that OS disk. om scan azure stays a read-only API scan and keeps packages already stored. Disks are tagged opensourceom:scan=workload and cannot be exported.
+A package that exists only on a VM disk stays on that VM. om scan workload azure replaces packages with what is installed on that OS disk. om scan azure stays a read-only API scan and keeps packages already stored. Disks are tagged opensourceom:scan=workload and cannot be exported.
 
-Windows images are skipped. Marketplace images this subscription cannot snapshot are skipped, and the command says so. Run om scan azure first so the VM nodes exist.
+Windows images are skipped. Marketplace images this subscription cannot read are skipped, and the command says so. Run om scan azure first so the VM nodes exist.
 
 The graph id matches om scan azure: azure:<AZURE_SUBSCRIPTION_ID>:<AZURE_LOCATION>:workload:<vm name>.
 
-Azure RBAC actions:
-  ` + strings.Join(azurev.ImagePermissions, "\n  ")
+` + granted("Production role", azurev.ImagePermissions) + "\n\n" + granted("Scanner role", azurev.WorkerPermissions)
 }
 
 func workloadImageGCPLong() string {
-	return `Inventory packages on boot images in the current GCP project.
+	return `Inventory packages on boot images in a production GCP project.
 
-Run it as root on a GCE instance in that project. The command reads each project image once, including images no instance in this region is running, and each image an instance in this region was launched from. It creates a disk from the image in this instance's zone, attaches it read-only, and mounts it read-only. It adds those CPE 2.3 names and package URLs to packages on every workload launched from that image, then deletes the disk, including when a read fails. The image is left in place. File contents stay on the disk.
+Run it as root on a GCE instance in the scanner project, in the same region. GCP_PROJECT_ID is the production project. The grants are in deploy/connect/gcp. The command reads each project image once, including images no instance in this region is running, and each image an instance in this region was launched from. It creates a disk from the image in this instance's zone, attaches it read-only, and mounts it read-only. It adds those CPE 2.3 names and package URLs to packages on every workload launched from that image, then deletes the disk, including when a read fails. The image is left in place. File contents stay off the graph.
 
-A package that exists only on an instance disk stays on that instance. This command does not copy it onto the image or onto another instance. om scan workload gcp replaces packages with what is installed on that boot disk. om scan gcp stays a read-only API scan and keeps packages already stored. Disks are labeled opensourceom-scan=workload. Label keys cannot contain a colon.
+A package that exists only on an instance disk stays on that instance. om scan workload gcp replaces packages with what is installed on that boot disk. om scan gcp stays a read-only API scan and keeps packages already stored. Disks are labeled opensourceom-scan=workload. Label keys cannot contain a colon.
 
-Windows images are skipped. Marketplace images this project cannot snapshot are skipped, and the command says so. Run om scan gcp first so the instance nodes exist.
+Windows images are skipped. Marketplace images this project cannot read are skipped, and the command says so. Run om scan gcp first so the instance nodes exist.
 
 The graph id matches om scan gcp: gcp:<GCP_PROJECT_ID>:<zone>:workload:<instance name>.
 
-IAM permissions:
-  ` + strings.Join(gcpv.ImagePermissions, "\n  ")
+` + granted("Production role", gcpv.ImagePermissions) + "\n\n" + granted("Scanner role", gcpv.WorkerPermissions)
 }
 
 func runScanWorkloadImageAWS(cmd *cobra.Command, args []string) error {
@@ -123,17 +118,16 @@ func runScanWorkloadImageAWS(cmd *cobra.Command, args []string) error {
 	}
 	defer store.Close()
 
-	collector, err := awscol.NewCollector(ctx, cfg.AWSRegion)
+	localCfg, prodCfg, scannerAccount, prodAccount, err := loadScannerAWS(ctx, cfg.AWSRegion)
 	if err != nil {
 		return err
 	}
-	awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(cfg.AWSRegion))
-	if err != nil {
-		return fmt.Errorf("load aws config: %w", err)
-	}
 
 	scanner := &awsv.Scanner{
-		API: ec2.NewFromConfig(awsCfg),
+		API:       ec2.NewFromConfig(localCfg),
+		Prod:      ec2.NewFromConfig(prodCfg),
+		AccountID: scannerAccount,
+		KMSKeyID:  scannerKMSKey(),
 		Worker: awsv.Worker{
 			InstanceID:       worker.InstanceID,
 			AvailabilityZone: worker.AvailabilityZone,
@@ -159,7 +153,7 @@ func runScanWorkloadImageAWS(cmd *cobra.Command, args []string) error {
 		}
 		var failed []error
 		for _, inst := range res.Instances {
-			nodeID := awscol.WorkloadNodeID(collector.AccountID, cfg.AWSRegion, inst.ID)
+			nodeID := awscol.WorkloadNodeID(prodAccount, cfg.AWSRegion, inst.ID)
 			if err := store.MergeWorkloadPackages(ctx, nodeID, res.Packages); err != nil {
 				failed = append(failed, err)
 				continue
@@ -196,12 +190,17 @@ func runScanWorkloadImageAzure(cmd *cobra.Command, args []string) error {
 	}
 	defer store.Close()
 
-	client, err := azurev.NewClient(cfg.AzureSubscriptionID)
+	prod, scannerClient, _, err := azureClients(cfg.AzureSubscriptionID, worker.SubscriptionID)
 	if err != nil {
 		return err
 	}
+	var disk azurev.ImageAPI
+	if scannerClient != nil {
+		disk = scannerClient
+	}
 	scanner := &azurev.ImageScanner{
-		API: client,
+		API:  prod,
+		Disk: disk,
 		Worker: azurev.Worker{
 			Name:           worker.Name,
 			ResourceGroup:  worker.ResourceGroup,
@@ -270,12 +269,17 @@ func runScanWorkloadImageGCP(cmd *cobra.Command, args []string) error {
 	}
 	defer store.Close()
 
-	client, err := gcpv.NewClient(ctx, cfg.GCPProjectID)
+	prod, scannerClient, err := gcpClients(ctx, cfg.GCPProjectID, worker.ProjectID)
 	if err != nil {
 		return err
 	}
+	var disk gcpv.ImageAPI
+	if scannerClient != nil {
+		disk = scannerClient
+	}
 	scanner := &gcpv.ImageScanner{
-		API: client,
+		API:  prod,
+		Disk: disk,
 		Worker: gcpv.Worker{
 			Name:      worker.Name,
 			ProjectID: worker.ProjectID,
@@ -322,8 +326,12 @@ func runScanWorkloadImageGCP(cmd *cobra.Command, args []string) error {
 func init() {
 	scanWorkloadImageAWSCmd.Flags().DurationVar(&awsImageTimeout, "timeout", 30*time.Minute, "time limit for each image")
 	scanWorkloadImageAWSCmd.Flags().StringArrayVar(&awsImageIDs, "image", nil, "AMI id or name (repeat to scan several; the default is every owned image and every image an instance in this region uses)")
+	scanWorkloadImageAWSCmd.Flags().StringVar(&awsSnapshotRole, "snapshot-role", "", "production role ARN from deploy/connect/aws (or OM_SNAPSHOT_ROLE_ARN)")
+	scanWorkloadImageAWSCmd.Flags().StringVar(&awsExternalID, "external-id", "", "external id the production role trusts (or OM_EXTERNAL_ID)")
+	scanWorkloadImageAWSCmd.Flags().StringVar(&awsKMSKey, "kms-key", "", "scanner account KMS key id or ARN for the copied snapshot (or OM_SCANNER_KMS_KEY_ID)")
 	scanWorkloadImageAzureCmd.Flags().DurationVar(&azureImageTimeout, "timeout", 30*time.Minute, "time limit for each image")
 	scanWorkloadImageAzureCmd.Flags().StringArrayVar(&azureImageIDs, "image", nil, "image name or resource id (repeat to scan several; the default is every image in this region)")
+	scanWorkloadImageAzureCmd.Flags().StringVar(&azureSnapshotGroup, "snapshot-group", defaultAzureSnapshotGroup, "resource group in the production subscription that holds snapshots")
 	scanWorkloadImageGCPCmd.Flags().DurationVar(&gcpImageTimeout, "timeout", 30*time.Minute, "time limit for each image")
 	scanWorkloadImageGCPCmd.Flags().StringArrayVar(&gcpImageIDs, "image", nil, "image name or resource link (repeat to scan several; the default is every project image and every image an instance in this region uses)")
 	scanWorkloadImageCmd.AddCommand(scanWorkloadImageAWSCmd, scanWorkloadImageAzureCmd, scanWorkloadImageGCPCmd)

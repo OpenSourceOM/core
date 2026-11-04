@@ -64,7 +64,7 @@ Phase 4 is open. Cloud collectors record the VM, its exposure, and its identity.
 
 The phase ends when a package found in that storage is a CVE finding on the workload the graph already stores. A block volume is the first source. Boot images, container image layers, function bundles, and shared filesystems are the rest.
 
-The scan is opt-in and separate from `om scan aws`, `om scan azure`, and `om scan gcp`. Those commands stay read-only. The workload scan runs a worker in the account and region, reads package metadata, and writes CPE 2.3 names and package URLs onto the existing workload. Snapshots and mounts are removed when the scan finishes, including when it fails. File contents stay on the storage.
+The scan is opt-in and separate from `om scan aws`, `om scan azure`, and `om scan gcp`. Those commands stay read-only. The workload scan runs a worker in a scanner account, subscription, or project, reads package metadata, and writes CPE 2.3 names and package URLs onto the existing workload. Snapshots and mounts are removed when the scan finishes, including when it fails. File contents stay off the graph.
 
 The path, in order:
 
@@ -74,9 +74,9 @@ The path, in order:
 - [ ] **Container image layers and function bundles** — layers for images already stored on Kubernetes workloads, plus Lambda deployment packages and the Azure and GCP equivalents. No volume attach — [#105](https://github.com/OpenSourceOM/core/issues/105)
 - [ ] **Shared filesystems** — EFS, Azure Files, and Filestore, when the application is installed there and a root-volume scan would miss it — [#106](https://github.com/OpenSourceOM/core/issues/106)
 
-`om scan workload aws` reads Linux root volumes in the current AWS account. It runs as root on an EC2 instance in that account, snapshots the root volume, mounts the copy read-only, and writes CPE 2.3 names and package URLs onto `packages`. `om scan workload azure` does the same for managed OS disks from an Azure VM in that region, and `om scan workload gcp` does it for GCE boot disks from an instance in that region. A later `om scan aws`, `om scan azure`, or `om scan gcp` leaves `packages` in place. Windows, LVM, and disks other than the root volume are skipped.
+`om scan workload aws` reads Linux root volumes in a production account from a worker in a scanner account. It assumes a snapshot role, shares the snapshot, copies it into the scanner account, and mounts that copy read-only. `om scan workload azure` and `om scan workload gcp` do the same from a scanner subscription or project. The grants are in `deploy/connect`. A later `om scan aws`, `om scan azure`, or `om scan gcp` leaves `packages` in place. Windows, LVM, and disks other than the root volume are skipped. See [ADR 009](./adr/009-scanner-account.md).
 
-`om scan workload image aws` reads each AMI once, including an image no instance is running, and adds those package identifiers to every instance launched from it. `om scan workload image azure` and `om scan workload image gcp` do the same for Azure and GCE images. A package found only on an instance's own disk stays on that instance. Marketplace images the account cannot snapshot are skipped. The volume or disk created for the read is deleted. The image's own snapshot is not.
+`om scan workload image aws` reads each AMI once, including an image no instance is running, and adds those package identifiers to every instance launched from it. `om scan workload image azure` and `om scan workload image gcp` do the same for Azure and GCE images. A package found only on an instance's own disk stays on that instance. Marketplace images the account cannot share are skipped. The volume or disk created for the read is deleted. The image's own snapshot is not.
 
 Object bodies and database rows stay out. They are customer data, not the installed software. A public bucket or database is already an exposure finding from the API scan.
 

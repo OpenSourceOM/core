@@ -18,22 +18,17 @@ import (
 	"github.com/aws/smithy-go"
 )
 
-// ImagePermissions are the IAM actions om scan workload image adds.
-// The AMI's own snapshot is not deleted. kms:CreateGrant and kms:Decrypt are
-// the grant an encrypted image snapshot needs when the volume is created.
+// ImagePermissions are the IAM actions the production role needs for an AMI.
+// The AMI's own snapshot is shared, copied into the scanner account, and left
+// in place. CreateVolume and DeleteSnapshot belong to WorkerPermissions.
 var ImagePermissions = []string{
 	"ec2:DescribeInstances",
 	"ec2:DescribeImages",
-	"ec2:CreateVolume",
-	"ec2:DescribeVolumes",
-	"ec2:AttachVolume",
-	"ec2:DetachVolume",
-	"ec2:DeleteVolume",
-	"ec2:CreateTags",
+	"ec2:DescribeSnapshots",
+	"ec2:ModifySnapshotAttribute",
 	"kms:CreateGrant",
 	"kms:Decrypt",
 	"kms:DescribeKey",
-	"kms:GenerateDataKeyWithoutPlaintext",
 	"kms:ReEncryptFrom",
 	"kms:ReEncryptTo",
 }
@@ -76,16 +71,23 @@ func (s *Scanner) ScanImages(ctx context.Context, only []string, write func(Imag
 		return err
 	}
 	var worker ec2types.Instance
-	found := false
-	for _, inst := range instances {
-		if aws.ToString(inst.InstanceId) == s.Worker.InstanceID {
-			worker = inst
-			found = true
-			break
+	if s.crossAccount() {
+		worker, err = s.localWorker(ctx)
+		if err != nil {
+			return err
 		}
-	}
-	if !found {
-		return fmt.Errorf("worker %s is not in this region", s.Worker.InstanceID)
+	} else {
+		found := false
+		for _, inst := range instances {
+			if aws.ToString(inst.InstanceId) == s.Worker.InstanceID {
+				worker = inst
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("worker %s is not in this region", s.Worker.InstanceID)
+		}
 	}
 	images, err := s.bootImages(ctx, instances, only)
 	if err != nil {
@@ -200,8 +202,12 @@ func selectBootImages(images []bootImage, only []string) ([]bootImage, error) {
 
 func (s *Scanner) describeImages(ctx context.Context, input *ec2.DescribeImagesInput) ([]ec2types.Image, error) {
 	var out []ec2types.Image
+	api := s.API
+	if s.crossAccount() {
+		api = s.prodAPI()
+	}
 	for {
-		page, err := s.API.DescribeImages(ctx, input)
+		page, err := api.DescribeImages(ctx, input)
 		if err != nil {
 			return nil, err
 		}
@@ -238,7 +244,19 @@ func (s *Scanner) scanImage(ctx context.Context, item bootImage, instances []ec2
 		s.OnStart(id, res.Name)
 	}
 
-	volID, err := s.createImageVolume(ctx, snapID, id)
+	readID, cleanup, err := s.stageSnapshot(ctx, snapID, id)
+	if cleanup != nil {
+		defer cleanup()
+	}
+	if err != nil {
+		if cannotSnapshotImage(err) {
+			res.Skipped = workload.ErrImageDenied.Error()
+			return res, nil
+		}
+		return ImageResult{}, fmt.Errorf("%s: %w", id, err)
+	}
+
+	volID, err := s.createImageVolume(ctx, readID, id)
 	if volID != "" {
 		defer s.deleteVolume(volID)
 	}

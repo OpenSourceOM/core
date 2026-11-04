@@ -96,10 +96,10 @@ go build -o om ./cmd/om
 # Or scan cloud / cluster inventory
 export AWS_REGION=us-east-1
 ./om scan aws
-# On an EC2 instance in that account, as root, after the API scan:
-# sudo -E ./om scan workload aws
-# sudo -E ./om scan workload image aws
-# On an Azure VM or a GCE instance in that region, as root:
+# On the scanner worker, as root, after the API scan.
+# Production grants are in deploy/connect.
+# sudo -E ./om scan workload aws --snapshot-role "$ROLE_ARN" --external-id "$EXTERNAL_ID" --kms-key "$SCANNER_KEY"
+# sudo -E ./om scan workload image aws --snapshot-role "$ROLE_ARN" --external-id "$EXTERNAL_ID" --kms-key "$SCANNER_KEY"
 # sudo -E ./om scan workload azure
 # sudo -E ./om scan workload image azure
 # sudo -E ./om scan workload gcp
@@ -146,14 +146,14 @@ An API token is created only when an admin asks for one, from the console or wit
 ```bash
 ./om scan demo     # sample environment, no credentials
 ./om scan aws
-./om scan workload aws         # root on an EC2 worker; Linux root-volume packages
-./om scan workload image aws   # root on an EC2 worker; AMI packages, applied to instances
+./om scan workload aws --snapshot-role "$ROLE_ARN" --external-id "$EXTERNAL_ID" --kms-key "$SCANNER_KEY"
+./om scan workload image aws --snapshot-role "$ROLE_ARN" --external-id "$EXTERNAL_ID" --kms-key "$SCANNER_KEY"
 ./om scan azure                # requires AZURE_SUBSCRIPTION_ID + az login
-./om scan workload azure       # root on an Azure VM; Linux OS-disk packages
-./om scan workload image azure # root on an Azure VM; boot-image packages, applied to VMs
+./om scan workload azure       # scanner VM; snapshots the production subscription
+./om scan workload image azure # scanner VM; boot-image packages, applied to VMs
 ./om scan gcp                  # requires GCP_PROJECT_ID + ADC
-./om scan workload gcp         # root on a GCE instance; Linux boot-disk packages
-./om scan workload image gcp   # root on a GCE instance; image packages, applied to instances
+./om scan workload gcp         # scanner VM; snapshots the production project
+./om scan workload image gcp   # scanner VM; image packages, applied to instances
 ./om scan k8s      # requires kubeconfig or in-cluster credentials
 ./om scan plugin -- ./my-collector
 ```

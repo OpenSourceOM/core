@@ -1,0 +1,20 @@
+{
+  "Sid": "AllowOpenSourceOMScanner",
+  "Effect": "Allow",
+  "Principal": {
+    "AWS": "arn:aws:iam::SCANNER_ACCOUNT_ID:role/opensourceom-worker"
+  },
+  "Action": [
+    "kms:Decrypt",
+    "kms:DescribeKey",
+    "kms:CreateGrant",
+    "kms:ReEncryptFrom",
+    "kms:ReEncryptTo"
+  ],
+  "Resource": "*",
+  "Condition": {
+    "StringEquals": {
+      "kms:ViaService": "ec2.REGION.amazonaws.com"
+    }
+  }
+}

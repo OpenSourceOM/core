@@ -18,13 +18,23 @@ import (
 func TestPermissionsCoverSnapshotLifecycle(t *testing.T) {
 	for _, action := range []string{
 		"Microsoft.Compute/snapshots/write",
-		"Microsoft.Compute/virtualMachines/attachDetachDataDisks/action",
 		"Microsoft.Compute/snapshots/delete",
-		"Microsoft.Compute/disks/delete",
 		"Microsoft.KeyVault/vaults/keys/unwrap/action",
 	} {
 		if !slices.Contains(Permissions, action) {
-			t.Errorf("missing %s", action)
+			t.Errorf("production role missing %s", action)
+		}
+	}
+	if slices.Contains(Permissions, "Microsoft.Compute/virtualMachines/attachDetachDataDisks/action") || slices.Contains(Permissions, "Microsoft.Compute/disks/write") {
+		t.Fatalf("production role attaches disks: %v", Permissions)
+	}
+	for _, action := range []string{
+		"Microsoft.Compute/virtualMachines/attachDetachDataDisks/action",
+		"Microsoft.Compute/disks/write",
+		"Microsoft.Compute/disks/delete",
+	} {
+		if !slices.Contains(WorkerPermissions, action) {
+			t.Errorf("scanner role missing %s", action)
 		}
 	}
 }

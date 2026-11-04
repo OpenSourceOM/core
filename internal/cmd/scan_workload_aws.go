@@ -6,13 +6,11 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	awscol "github.com/OpenSourceOM/core/internal/collectors/aws"
 	"github.com/OpenSourceOM/core/internal/workload"
 	awsv "github.com/OpenSourceOM/core/internal/workload/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/spf13/cobra"
 )
@@ -30,16 +28,15 @@ var scanWorkloadAWSCmd = &cobra.Command{
 }
 
 func workloadAWSLong() string {
-	return `Inventory packages on Linux root volumes in the current AWS account.
+	return `Inventory packages on Linux root volumes in a production AWS account.
 
-Run it as root on an EC2 instance in that account. The command snapshots each root volume, creates a volume from the snapshot in this instance's availability zone, attaches it, and mounts it read-only. It writes CPE 2.3 names and package URLs onto the workload node from om scan aws, then deletes the snapshot and the volume, including when a read fails. File contents stay on the volume.
+Run it as root on an EC2 instance in the scanner account, in the same region. Pass --snapshot-role and --external-id for the role deploy/connect/aws creates in the production account. The command assumes that role, snapshots each root volume, and shares the snapshot with the scanner account. The worker copies it, creates a volume in this instance's availability zone, attaches it, and mounts it read-only. It writes CPE 2.3 names and package URLs onto the workload node from om scan aws, then deletes the copy and the source snapshot, including when a read fails. File contents stay off the graph.
 
-om scan aws stays a read-only API scan. A later om scan aws keeps packages already stored on the workload. Snapshots and volumes are tagged opensourceom:scan=workload, which is how to find one left behind by a killed process.
+An encrypted volume needs --kms-key, a key in the scanner account. The production key policy has to allow the scanner role to decrypt. om scan aws stays a read-only API scan. A later om scan aws keeps packages already stored on the workload. Snapshots and volumes are tagged opensourceom:scan=workload, which is how to find one left behind by a killed process.
 
 This command reads Linux root volumes. Windows instances are skipped. LVM and disks other than the root volume are skipped. Boot images are "om scan workload image aws". Container layers, function bundles, and shared filesystems are later scans.
 
-IAM actions:
-  ` + strings.Join(awsv.Permissions, "\n  ")
+` + granted("Production role", awsv.Permissions) + "\n\n" + granted("Scanner role", awsv.WorkerPermissions)
 }
 
 func runScanWorkloadAWS(cmd *cobra.Command, args []string) error {
@@ -62,17 +59,16 @@ func runScanWorkloadAWS(cmd *cobra.Command, args []string) error {
 	}
 	defer store.Close()
 
-	collector, err := awscol.NewCollector(ctx, cfg.AWSRegion)
+	localCfg, prodCfg, scannerAccount, prodAccount, err := loadScannerAWS(ctx, cfg.AWSRegion)
 	if err != nil {
 		return err
 	}
-	awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(cfg.AWSRegion))
-	if err != nil {
-		return fmt.Errorf("load aws config: %w", err)
-	}
 
 	scanner := &awsv.Scanner{
-		API: ec2.NewFromConfig(awsCfg),
+		API:       ec2.NewFromConfig(localCfg),
+		Prod:      ec2.NewFromConfig(prodCfg),
+		AccountID: scannerAccount,
+		KMSKeyID:  scannerKMSKey(),
 		Worker: awsv.Worker{
 			InstanceID:       worker.InstanceID,
 			AvailabilityZone: worker.AvailabilityZone,
@@ -93,7 +89,7 @@ func runScanWorkloadAWS(cmd *cobra.Command, args []string) error {
 			fmt.Printf("%s: skipped (%s)\n", label, res.Skipped)
 			return nil
 		}
-		nodeID := awscol.WorkloadNodeID(collector.AccountID, cfg.AWSRegion, res.InstanceID)
+		nodeID := awscol.WorkloadNodeID(prodAccount, cfg.AWSRegion, res.InstanceID)
 		if err := store.SetWorkloadPackages(ctx, nodeID, res.Packages); err != nil {
 			return err
 		}
@@ -115,5 +111,8 @@ func workloadLabel(instanceID, name string) string {
 func init() {
 	scanWorkloadAWSCmd.Flags().DurationVar(&awsWorkloadTimeout, "timeout", 30*time.Minute, "time limit for each instance")
 	scanWorkloadAWSCmd.Flags().StringArrayVar(&awsWorkloadInstances, "instance", nil, "EC2 instance to scan (repeat to scan several; the default is every instance in the region)")
+	scanWorkloadAWSCmd.Flags().StringVar(&awsSnapshotRole, "snapshot-role", "", "production role ARN from deploy/connect/aws (or OM_SNAPSHOT_ROLE_ARN)")
+	scanWorkloadAWSCmd.Flags().StringVar(&awsExternalID, "external-id", "", "external id the production role trusts (or OM_EXTERNAL_ID)")
+	scanWorkloadAWSCmd.Flags().StringVar(&awsKMSKey, "kms-key", "", "scanner account KMS key id or ARN for the copied snapshot (or OM_SCANNER_KMS_KEY_ID)")
 	scanWorkloadCmd.AddCommand(scanWorkloadAWSCmd)
 }

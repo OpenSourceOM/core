@@ -16,21 +16,44 @@ import (
 	"github.com/aws/smithy-go"
 )
 
-// Permissions are the IAM actions om scan workload aws adds.
-// kms:CreateGrant and kms:Decrypt are the grant an encrypted root volume needs.
+// Permissions are the IAM actions of the role in the account being scanned.
+// That role creates and shares snapshots. It does not attach a volume.
+// kms:CreateGrant and kms:Decrypt are the grant an encrypted root volume needs
+// when the snapshot is created. The key policy has to name the scanner role too.
 var Permissions = []string{
 	"ec2:DescribeInstances",
-	"ec2:CreateSnapshot",
+	"ec2:DescribeImages",
 	"ec2:DescribeSnapshots",
-	"ec2:DeleteSnapshot",
-	"ec2:CreateVolume",
 	"ec2:DescribeVolumes",
+	"ec2:CreateSnapshot",
+	"ec2:CreateTags",
+	"ec2:ModifySnapshotAttribute",
+	"ec2:DeleteSnapshot",
+	"kms:CreateGrant",
+	"kms:Decrypt",
+	"kms:DescribeKey",
+	"kms:ReEncryptFrom",
+	"kms:ReEncryptTo",
+}
+
+// WorkerPermissions are the IAM actions of the instance profile in the scanner
+// account. The worker copies the shared snapshot, attaches the volume, and
+// deletes the copy. kms:Encrypt is the scanner account key used for that copy.
+var WorkerPermissions = []string{
+	"ec2:DescribeInstances",
+	"ec2:DescribeSnapshots",
+	"ec2:DescribeVolumes",
+	"ec2:CopySnapshot",
+	"ec2:CreateVolume",
+	"ec2:CreateTags",
 	"ec2:AttachVolume",
 	"ec2:DetachVolume",
 	"ec2:DeleteVolume",
-	"ec2:CreateTags",
+	"ec2:DeleteSnapshot",
+	"sts:AssumeRole",
 	"kms:CreateGrant",
 	"kms:Decrypt",
+	"kms:Encrypt",
 	"kms:DescribeKey",
 	"kms:GenerateDataKeyWithoutPlaintext",
 	"kms:ReEncryptFrom",
@@ -53,15 +76,22 @@ type Result struct {
 }
 
 // Scanner snapshots Linux root volumes, reads them, and deletes what it created.
+// API is the scanner account, where the worker attaches the volume.
+// Prod is the account being scanned. AccountID is the scanner account id the
+// snapshot is shared with. When AccountID is empty, Prod is unused and the
+// volume is created from the snapshot in the same account as API.
 type Scanner struct {
-	API     ec2API
-	Worker  Worker
-	Only    []string
-	Timeout time.Duration
-	Poll    time.Duration
-	Mount   func(ctx context.Context, volumeID string) (root string, cleanup func() error, err error)
-	Walk    func(root string) ([]string, error)
-	OnStart func(instanceID, name string)
+	API       ec2API
+	Prod      ec2API
+	AccountID string
+	KMSKeyID  string
+	Worker    Worker
+	Only      []string
+	Timeout   time.Duration
+	Poll      time.Duration
+	Mount     func(ctx context.Context, volumeID string) (root string, cleanup func() error, err error)
+	Walk      func(root string) ([]string, error)
+	OnStart   func(instanceID, name string)
 
 	cleanupErrs []error
 }
@@ -77,6 +107,8 @@ type ec2API interface {
 	DetachVolume(context.Context, *ec2.DetachVolumeInput, ...func(*ec2.Options)) (*ec2.DetachVolumeOutput, error)
 	DeleteVolume(context.Context, *ec2.DeleteVolumeInput, ...func(*ec2.Options)) (*ec2.DeleteVolumeOutput, error)
 	DeleteSnapshot(context.Context, *ec2.DeleteSnapshotInput, ...func(*ec2.Options)) (*ec2.DeleteSnapshotOutput, error)
+	ModifySnapshotAttribute(context.Context, *ec2.ModifySnapshotAttributeInput, ...func(*ec2.Options)) (*ec2.ModifySnapshotAttributeOutput, error)
+	CopySnapshot(context.Context, *ec2.CopySnapshotInput, ...func(*ec2.Options)) (*ec2.CopySnapshotOutput, error)
 }
 
 var _ ec2API = (*ec2.Client)(nil)
@@ -125,9 +157,18 @@ func (s *Scanner) list(ctx context.Context) ([]ec2types.Instance, ec2types.Insta
 	for _, inst := range instances {
 		byID[aws.ToString(inst.InstanceId)] = inst
 	}
-	worker, ok := byID[s.Worker.InstanceID]
-	if !ok {
-		return nil, ec2types.Instance{}, fmt.Errorf("worker %s is not in this region", s.Worker.InstanceID)
+	var worker ec2types.Instance
+	if s.crossAccount() {
+		worker, err = s.localWorker(ctx)
+		if err != nil {
+			return nil, ec2types.Instance{}, err
+		}
+	} else {
+		found, ok := byID[s.Worker.InstanceID]
+		if !ok {
+			return nil, ec2types.Instance{}, fmt.Errorf("worker %s is not in this region", s.Worker.InstanceID)
+		}
+		worker = found
 	}
 	if len(s.Only) == 0 {
 		return instances, worker, nil
@@ -150,7 +191,7 @@ func (s *Scanner) describe(ctx context.Context, ids []string) ([]ec2types.Instan
 	}
 	var out []ec2types.Instance
 	for {
-		page, err := s.API.DescribeInstances(ctx, input)
+		page, err := s.instanceAPI().DescribeInstances(ctx, input)
 		if err != nil {
 			return nil, fmt.Errorf("describe instances: %w", err)
 		}
@@ -195,8 +236,15 @@ func (s *Scanner) scanInstance(ctx context.Context, inst, worker ec2types.Instan
 	if err := s.waitSnapshot(ctx, snapID); err != nil {
 		return Result{}, fmt.Errorf("%s: %w", id, err)
 	}
+	readID, cleanup, err := s.stageSnapshot(ctx, snapID, id)
+	if cleanup != nil {
+		defer cleanup()
+	}
+	if err != nil {
+		return Result{}, fmt.Errorf("%s: %w", id, err)
+	}
 
-	volID, err := s.createVolume(ctx, snapID, id)
+	volID, err := s.createVolume(ctx, readID, id)
 	if err != nil {
 		return Result{}, fmt.Errorf("%s: %w", id, err)
 	}
@@ -245,7 +293,7 @@ func (s *Scanner) scanInstance(ctx context.Context, inst, worker ec2types.Instan
 }
 
 func (s *Scanner) createSnapshot(ctx context.Context, volumeID, instanceID string) (string, error) {
-	out, err := s.API.CreateSnapshot(ctx, &ec2.CreateSnapshotInput{
+	out, err := s.prodAPI().CreateSnapshot(ctx, &ec2.CreateSnapshotInput{
 		VolumeId:    aws.String(volumeID),
 		Description: aws.String("OpenSourceOM workload package inventory"),
 		TagSpecifications: []ec2types.TagSpecification{{
@@ -292,8 +340,16 @@ func scanTags(instanceID string) []ec2types.Tag {
 }
 
 func (s *Scanner) waitSnapshot(ctx context.Context, id string) error {
+	return s.waitSnapshotOn(ctx, s.prodAPI(), id)
+}
+
+func (s *Scanner) waitLocalSnapshot(ctx context.Context, id string) error {
+	return s.waitSnapshotOn(ctx, s.API, id)
+}
+
+func (s *Scanner) waitSnapshotOn(ctx context.Context, api ec2API, id string) error {
 	return s.poll(ctx, func() (bool, error) {
-		out, err := s.API.DescribeSnapshots(ctx, &ec2.DescribeSnapshotsInput{SnapshotIds: []string{id}})
+		out, err := api.DescribeSnapshots(ctx, &ec2.DescribeSnapshotsInput{SnapshotIds: []string{id}})
 		if err != nil {
 			return false, fmt.Errorf("describe snapshot: %w", err)
 		}
@@ -411,9 +467,20 @@ func (s *Scanner) deleteVolume(volID string) {
 }
 
 func (s *Scanner) deleteSnapshot(snapID string) {
+	s.deleteSnapshotOn(s.prodAPI(), snapID)
+}
+
+func (s *Scanner) deleteLocalSnapshot(snapID string) {
+	s.deleteSnapshotOn(s.API, snapID)
+}
+
+func (s *Scanner) deleteSnapshotOn(api ec2API, snapID string) {
+	if snapID == "" || api == nil {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	_, err := s.API.DeleteSnapshot(ctx, &ec2.DeleteSnapshotInput{SnapshotId: aws.String(snapID)})
+	_, err := api.DeleteSnapshot(ctx, &ec2.DeleteSnapshotInput{SnapshotId: aws.String(snapID)})
 	if isNotFound(err) {
 		return
 	}

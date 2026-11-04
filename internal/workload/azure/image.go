@@ -17,15 +17,13 @@ import (
 	"github.com/OpenSourceOM/core/internal/workload"
 )
 
-// ImagePermissions are the Azure RBAC actions om scan workload image azure adds.
-// The image itself is not deleted. om scan azure does not gain these actions.
+// ImagePermissions are the Azure RBAC actions granted on the subscription
+// being scanned so the worker can read boot images. Disk create and attach
+// belong to WorkerPermissions. The image itself is not deleted.
 var ImagePermissions = []string{
 	"Microsoft.Compute/virtualMachines/read",
 	"Microsoft.Compute/images/read",
 	"Microsoft.Compute/galleries/images/versions/read",
-	"Microsoft.Compute/disks/write",
-	"Microsoft.Compute/disks/delete",
-	"Microsoft.Compute/virtualMachines/attachDetachDataDisks/action",
 }
 
 // ImageVM is a virtual machine launched from one boot image.
@@ -67,8 +65,11 @@ type ImageAPI interface {
 var _ ImageAPI = (*Client)(nil)
 
 // ImageScanner reads each boot image once and deletes the disk it created.
+// Disk, when set, is the scanner subscription. API lists images in the
+// subscription being scanned.
 type ImageScanner struct {
 	API     ImageAPI
+	Disk    ImageAPI
 	Worker  Worker
 	Only    []string
 	Timeout time.Duration
@@ -88,7 +89,7 @@ func (s *ImageScanner) Scan(ctx context.Context, write func(ImageResult) error) 
 	if s.API == nil || s.Mount == nil || s.Walk == nil {
 		return fmt.Errorf("workload scan is missing an Azure client, mount, or package walker")
 	}
-	images, luns, err := s.API.ListBootImages(ctx, s.Worker)
+	images, luns, err := s.bootImages(ctx)
 	if err != nil {
 		return err
 	}
@@ -132,7 +133,7 @@ func (s *ImageScanner) scanImage(ctx context.Context, img BootImage, luns []int3
 		s.OnStart(img.Key, img.Name)
 	}
 	group := s.Worker.ResourceGroup
-	disk, err := s.API.CreateDiskFromImage(ctx, group, normalizeLocation(s.Worker.Location), img, s.Worker.zones())
+	disk, err := s.diskAPI().CreateDiskFromImage(ctx, group, normalizeLocation(s.Worker.Location), img, s.Worker.zones())
 	if disk != "" {
 		defer s.deleteDisk(group, disk)
 	}
@@ -143,7 +144,7 @@ func (s *ImageScanner) scanImage(ctx context.Context, img BootImage, luns []int3
 		}
 		return ImageResult{}, fmt.Errorf("%s: %w", imageLabel(img), err)
 	}
-	if err := s.API.Attach(ctx, group, s.Worker.Name, disk, lun); err != nil {
+	if err := s.diskAPI().Attach(ctx, group, s.Worker.Name, disk, lun); err != nil {
 		return ImageResult{}, fmt.Errorf("%s: %w", imageLabel(img), err)
 	}
 	defer s.detach(group, disk)
@@ -170,10 +171,40 @@ func (s *ImageScanner) scanImage(ctx context.Context, img BootImage, luns []int3
 	return res, nil
 }
 
+type imageCatalog interface {
+	ListImages(ctx context.Context, location string) ([]BootImage, error)
+}
+
+func (s *ImageScanner) diskAPI() ImageAPI {
+	if s.Disk != nil {
+		return s.Disk
+	}
+	return s.API
+}
+
+func (s *ImageScanner) bootImages(ctx context.Context) ([]BootImage, []int32, error) {
+	if s.Disk == nil {
+		return s.API.ListBootImages(ctx, s.Worker)
+	}
+	catalog, ok := s.API.(imageCatalog)
+	if !ok {
+		return nil, nil, fmt.Errorf("production client cannot list images")
+	}
+	images, err := catalog.ListImages(ctx, s.Worker.Location)
+	if err != nil {
+		return nil, nil, err
+	}
+	_, luns, err := s.Disk.ListBootImages(ctx, s.Worker)
+	if err != nil {
+		return nil, nil, err
+	}
+	return images, luns, nil
+}
+
 func (s *ImageScanner) detach(group, disk string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if err := s.API.Detach(ctx, group, s.Worker.Name, disk); err != nil && !isNotFound(err) {
+	if err := s.diskAPI().Detach(ctx, group, s.Worker.Name, disk); err != nil && !isNotFound(err) {
 		s.note(fmt.Errorf("detach disk %s: %w", disk, err))
 	}
 }
@@ -181,7 +212,7 @@ func (s *ImageScanner) detach(group, disk string) {
 func (s *ImageScanner) deleteDisk(group, name string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if err := s.API.DeleteDisk(ctx, group, name); err != nil && !isNotFound(err) {
+	if err := s.diskAPI().DeleteDisk(ctx, group, name); err != nil && !isNotFound(err) {
 		s.note(fmt.Errorf("delete disk %s: %w", name, err))
 	}
 }
@@ -240,6 +271,19 @@ func imageLabel(img BootImage) string {
 
 // ListBootImages returns managed images in the worker's region, images that
 // virtual machines there were launched from, and the worker's data-disk LUNs.
+func (c *Client) ListImages(ctx context.Context, location string) ([]BootImage, error) {
+	location = normalizeLocation(location)
+	machines, err := c.List(ctx, location)
+	if err != nil {
+		return nil, err
+	}
+	listed, err := c.listManagedImages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return assembleBootImages(location, c.sub, machines, listed), nil
+}
+
 func (c *Client) ListBootImages(ctx context.Context, worker Worker) ([]BootImage, []int32, error) {
 	if worker.Name == "" || worker.ResourceGroup == "" || worker.Location == "" {
 		return nil, nil, fmt.Errorf("worker name, resource group, and location are required")

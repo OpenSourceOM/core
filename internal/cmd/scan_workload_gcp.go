@@ -6,7 +6,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	gcpcol "github.com/OpenSourceOM/core/internal/collectors/gcp"
@@ -28,9 +27,9 @@ var scanWorkloadGCPCmd = &cobra.Command{
 }
 
 func workloadGCPLong() string {
-	return `Inventory packages on Linux boot disks in the current GCP project.
+	return `Inventory packages on Linux boot disks in a production GCP project.
 
-Run it as root on a GCE instance in that project. The command snapshots each persistent boot disk in this instance's region, creates a disk from the snapshot in this instance's zone, attaches it read-only, and mounts it read-only. It writes CPE 2.3 names and package URLs onto the workload node from om scan gcp, then deletes the snapshot and the disk, including when a read fails. File contents stay on the disk.
+Run it as root on a GCE instance in the scanner project, in the same region. GCP_PROJECT_ID is the production project. The grants are in deploy/connect/gcp. The command snapshots each persistent boot disk in this instance's region, creates a disk from that snapshot in this instance's zone, attaches it read-only, and mounts it read-only. It writes CPE 2.3 names and package URLs onto the workload node from om scan gcp, then deletes the snapshot and the disk, including when a read fails. File contents stay off the graph.
 
 om scan gcp stays a read-only API scan. A later om scan gcp keeps packages already stored on the workload. Snapshots and disks are labeled opensourceom-scan=workload, which is how to find one left behind by a killed process. Label keys cannot contain a colon.
 
@@ -38,8 +37,7 @@ This command reads Linux boot disks. Windows instances are skipped. Local SSD bo
 
 The graph id matches om scan gcp: gcp:<GCP_PROJECT_ID>:<zone>:workload:<instance name>.
 
-IAM permissions:
-  ` + strings.Join(gcpv.Permissions, "\n  ")
+` + granted("Production role", gcpv.Permissions) + "\n\n" + granted("Scanner role", gcpv.WorkerPermissions)
 }
 
 func runScanWorkloadGCP(cmd *cobra.Command, args []string) error {
@@ -65,12 +63,20 @@ func runScanWorkloadGCP(cmd *cobra.Command, args []string) error {
 	}
 	defer store.Close()
 
-	client, err := gcpv.NewClient(ctx, cfg.GCPProjectID)
+	prod, scannerClient, err := gcpClients(ctx, cfg.GCPProjectID, worker.ProjectID)
 	if err != nil {
 		return err
 	}
+	var disk gcpv.API
+	project := ""
+	if scannerClient != nil {
+		disk = scannerClient
+		project = cfg.GCPProjectID
+	}
 	scanner := &gcpv.Scanner{
-		API: client,
+		API:         prod,
+		Disk:        disk,
+		ProdProject: project,
 		Worker: gcpv.Worker{
 			Name:      worker.Name,
 			ProjectID: worker.ProjectID,

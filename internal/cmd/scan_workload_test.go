@@ -28,19 +28,19 @@ func TestScanWorkloadRegistered(t *testing.T) {
 		t.Fatal("om scan workload runs a scan; name the cloud")
 	}
 	aws := commandByName(t, workloadCmd, "aws")
-	for _, action := range awsv.Permissions {
+	for _, action := range append(append([]string{}, awsv.Permissions...), awsv.WorkerPermissions...) {
 		if !strings.Contains(aws.Long, action) {
 			t.Errorf("aws help missing %s", action)
 		}
 	}
 	azure := commandByName(t, workloadCmd, "azure")
-	for _, action := range azurev.Permissions {
+	for _, action := range append(append([]string{}, azurev.Permissions...), azurev.WorkerPermissions...) {
 		if !strings.Contains(azure.Long, action) {
 			t.Errorf("azure help missing %s", action)
 		}
 	}
 	gcp := commandByName(t, workloadCmd, "gcp")
-	for _, action := range gcpv.Permissions {
+	for _, action := range append(append([]string{}, gcpv.Permissions...), gcpv.WorkerPermissions...) {
 		if !strings.Contains(gcp.Long, action) {
 			t.Errorf("gcp help missing %s", action)
 		}
@@ -50,19 +50,19 @@ func TestScanWorkloadRegistered(t *testing.T) {
 		t.Fatal("om scan workload image runs a scan; name the cloud")
 	}
 	awsImage := commandByName(t, image, "aws")
-	for _, action := range awsv.ImagePermissions {
+	for _, action := range append(append([]string{}, awsv.ImagePermissions...), awsv.WorkerPermissions...) {
 		if !strings.Contains(awsImage.Long, action) {
 			t.Errorf("image aws help missing %s", action)
 		}
 	}
 	azureImage := commandByName(t, image, "azure")
-	for _, action := range azurev.ImagePermissions {
+	for _, action := range append(append([]string{}, azurev.ImagePermissions...), azurev.WorkerPermissions...) {
 		if !strings.Contains(azureImage.Long, action) {
 			t.Errorf("image azure help missing %s", action)
 		}
 	}
 	gcpImage := commandByName(t, image, "gcp")
-	for _, action := range gcpv.ImagePermissions {
+	for _, action := range append(append([]string{}, gcpv.ImagePermissions...), gcpv.WorkerPermissions...) {
 		if !strings.Contains(gcpImage.Long, action) {
 			t.Errorf("image gcp help missing %s", action)
 		}

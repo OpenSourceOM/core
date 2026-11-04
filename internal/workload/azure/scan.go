@@ -13,18 +13,34 @@ import (
 	"github.com/OpenSourceOM/core/internal/workload"
 )
 
-// Permissions are the Azure RBAC actions om scan workload azure adds.
-// keys/unwrap/action and keys/wrap/action are the grant a customer-managed key needs.
-// om scan azure does not gain these actions.
+// Permissions are the Azure RBAC actions granted on the subscription being
+// scanned. That identity creates and deletes snapshots. It does not attach a
+// disk. keys/unwrap/action and keys/wrap/action are the grant a
+// customer-managed key needs. om scan azure does not gain these actions.
 var Permissions = []string{
 	"Microsoft.Compute/virtualMachines/read",
 	"Microsoft.Compute/disks/read",
-	"Microsoft.Compute/disks/beginGetAccess/action",
 	"Microsoft.Compute/snapshots/read",
 	"Microsoft.Compute/snapshots/write",
 	"Microsoft.Compute/snapshots/delete",
+	"Microsoft.Compute/images/read",
+	"Microsoft.Compute/galleries/images/versions/read",
+	"Microsoft.Compute/diskEncryptionSets/read",
+	"Microsoft.KeyVault/vaults/keys/wrap/action",
+	"Microsoft.KeyVault/vaults/keys/unwrap/action",
+}
+
+// WorkerPermissions are the Azure RBAC actions granted in the scanner
+// subscription, where the worker attaches the disk. snapshots/read lets that
+// identity create a disk from a snapshot in the subscription being scanned.
+var WorkerPermissions = []string{
+	"Microsoft.Compute/virtualMachines/read",
+	"Microsoft.Compute/disks/read",
 	"Microsoft.Compute/disks/write",
 	"Microsoft.Compute/disks/delete",
+	"Microsoft.Compute/snapshots/read",
+	"Microsoft.Compute/images/read",
+	"Microsoft.Compute/galleries/images/versions/read",
 	"Microsoft.Compute/virtualMachines/attachDetachDataDisks/action",
 	"Microsoft.Compute/diskEncryptionSets/read",
 	"Microsoft.KeyVault/vaults/keys/wrap/action",
@@ -82,14 +98,20 @@ type API interface {
 }
 
 // Scanner snapshots Linux OS disks, reads them, and deletes what it created.
+// API is the subscription being scanned. Disk, when set, is the scanner
+// subscription where the worker attaches the disk. ProdSubscription and
+// SnapshotGroup name the snapshot that Disk creates a managed disk from.
 type Scanner struct {
-	API     API
-	Worker  Worker
-	Only    []string
-	Timeout time.Duration
-	Mount   func(ctx context.Context, lun string) (root string, cleanup func() error, err error)
-	Walk    func(root string) ([]string, error)
-	OnStart func(name, group string)
+	API              API
+	Disk             API
+	ProdSubscription string
+	SnapshotGroup    string
+	Worker           Worker
+	Only             []string
+	Timeout          time.Duration
+	Mount            func(ctx context.Context, lun string) (root string, cleanup func() error, err error)
+	Walk             func(root string) ([]string, error)
+	OnStart          func(name, group string)
 
 	cleanupErrs []error
 }
@@ -134,9 +156,21 @@ func (s *Scanner) list(ctx context.Context) ([]Machine, Machine, error) {
 	if err != nil {
 		return nil, Machine{}, err
 	}
-	worker, err := findMachine(machines, s.Worker.ResourceGroup+"/"+s.Worker.Name)
-	if err != nil {
-		return nil, Machine{}, fmt.Errorf("worker %s/%s is not in %s", s.Worker.ResourceGroup, s.Worker.Name, normalizeLocation(s.Worker.Location))
+	var worker Machine
+	if s.Disk != nil {
+		scanned, err := s.Disk.List(ctx, normalizeLocation(s.Worker.Location))
+		if err != nil {
+			return nil, Machine{}, err
+		}
+		worker, err = findMachine(scanned, s.Worker.ResourceGroup+"/"+s.Worker.Name)
+		if err != nil {
+			return nil, Machine{}, fmt.Errorf("worker %s/%s is not in the scanner subscription", s.Worker.ResourceGroup, s.Worker.Name)
+		}
+	} else {
+		worker, err = findMachine(machines, s.Worker.ResourceGroup+"/"+s.Worker.Name)
+		if err != nil {
+			return nil, Machine{}, fmt.Errorf("worker %s/%s is not in %s", s.Worker.ResourceGroup, s.Worker.Name, normalizeLocation(s.Worker.Location))
+		}
 	}
 	if len(s.Only) == 0 {
 		return machines, worker, nil
@@ -166,7 +200,7 @@ func (s *Scanner) scanVM(ctx context.Context, vm Machine, luns []int32) (Result,
 		s.OnStart(vm.Name, vm.ResourceGroup)
 	}
 
-	group := s.Worker.ResourceGroup
+	group := s.snapshotGroup()
 	snap, err := s.API.CreateSnapshot(ctx, group, normalizeLocation(s.Worker.Location), vm.OSDiskID, vm.Name)
 	if snap != "" {
 		defer s.deleteSnapshot(group, snap)
@@ -174,17 +208,18 @@ func (s *Scanner) scanVM(ctx context.Context, vm Machine, luns []int32) (Result,
 	if err != nil {
 		return Result{}, fmt.Errorf("%s: %w", vmLabel(res), err)
 	}
-	disk, err := s.API.CreateDisk(ctx, group, normalizeLocation(s.Worker.Location), snap, s.Worker.zones(), vm.Name)
+	diskGroup := s.Worker.ResourceGroup
+	disk, err := s.diskAPI().CreateDisk(ctx, diskGroup, normalizeLocation(s.Worker.Location), s.snapshotSource(group, snap), s.Worker.zones(), vm.Name)
 	if disk != "" {
-		defer s.deleteDisk(group, disk)
+		defer s.deleteDisk(diskGroup, disk)
 	}
 	if err != nil {
 		return Result{}, fmt.Errorf("%s: %w", vmLabel(res), err)
 	}
-	if err := s.API.Attach(ctx, group, s.Worker.Name, disk, lun); err != nil {
+	if err := s.diskAPI().Attach(ctx, diskGroup, s.Worker.Name, disk, lun); err != nil {
 		return Result{}, fmt.Errorf("%s: %w", vmLabel(res), err)
 	}
-	defer s.detach(group, disk)
+	defer s.detach(diskGroup, disk)
 
 	root, unmount, err := s.Mount(ctx, fmt.Sprintf("%d", lun))
 	if err != nil {
@@ -215,10 +250,31 @@ func (w Worker) zones() []string {
 	return []string{w.Zone}
 }
 
+func (s *Scanner) diskAPI() API {
+	if s.Disk != nil {
+		return s.Disk
+	}
+	return s.API
+}
+
+func (s *Scanner) snapshotGroup() string {
+	if s.SnapshotGroup != "" {
+		return s.SnapshotGroup
+	}
+	return s.Worker.ResourceGroup
+}
+
+func (s *Scanner) snapshotSource(group, name string) string {
+	if s.Disk == nil || s.ProdSubscription == "" || strings.HasPrefix(name, "/") {
+		return name
+	}
+	return "/subscriptions/" + s.ProdSubscription + "/resourceGroups/" + group + "/providers/Microsoft.Compute/snapshots/" + name
+}
+
 func (s *Scanner) detach(group, disk string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if err := s.API.Detach(ctx, group, s.Worker.Name, disk); err != nil && !isNotFound(err) {
+	if err := s.diskAPI().Detach(ctx, group, s.Worker.Name, disk); err != nil && !isNotFound(err) {
 		s.note(fmt.Errorf("detach disk %s: %w", disk, err))
 	}
 }
@@ -226,7 +282,7 @@ func (s *Scanner) detach(group, disk string) {
 func (s *Scanner) deleteDisk(group, name string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if err := s.API.DeleteDisk(ctx, group, name); err != nil && !isNotFound(err) {
+	if err := s.diskAPI().DeleteDisk(ctx, group, name); err != nil && !isNotFound(err) {
 		s.note(fmt.Errorf("delete disk %s: %w", name, err))
 	}
 }

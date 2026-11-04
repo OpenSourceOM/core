@@ -13,18 +13,36 @@ import (
 	"github.com/OpenSourceOM/core/internal/workload"
 )
 
-// Permissions are the IAM permissions om scan workload gcp adds.
-// useToDecrypt is the unwrap a customer-managed key needs. useToEncrypt is the
-// matching wrap when the snapshot keeps that key. om scan gcp does not gain these.
+// Permissions are the IAM permissions granted on the project being scanned.
+// The scanner service account creates snapshots there and may use them to
+// create a disk in the scanner project. It does not attach a disk in this
+// project. useToDecrypt is the unwrap a customer-managed key needs.
+// useToEncrypt is the wrap when the snapshot keeps that key. om scan gcp does
+// not gain these permissions.
 var Permissions = []string{
 	"compute.instances.list",
 	"compute.instances.get",
+	"compute.disks.list",
 	"compute.disks.createSnapshot",
 	"compute.regionDisks.createSnapshot",
 	"compute.snapshots.create",
 	"compute.snapshots.get",
 	"compute.snapshots.delete",
 	"compute.snapshots.useReadOnly",
+	"compute.images.list",
+	"compute.images.get",
+	"compute.images.useReadOnly",
+	"compute.zoneOperations.get",
+	"compute.globalOperations.get",
+	"cloudkms.cryptoKeyVersions.useToDecrypt",
+	"cloudkms.cryptoKeyVersions.useToEncrypt",
+}
+
+// WorkerPermissions are the IAM permissions granted on the scanner project,
+// where the worker attaches the disk.
+var WorkerPermissions = []string{
+	"compute.instances.list",
+	"compute.instances.get",
 	"compute.disks.create",
 	"compute.disks.get",
 	"compute.disks.delete",
@@ -81,14 +99,19 @@ type API interface {
 }
 
 // Scanner snapshots Linux boot disks, reads them, and deletes what it created.
+// API is the project being scanned. Disk, when set, is the scanner project.
+// ProdProject is the project id embedded in the snapshot URL the disk is
+// created from.
 type Scanner struct {
-	API     API
-	Worker  Worker
-	Only    []string
-	Timeout time.Duration
-	Mount   func(ctx context.Context, device string) (root string, cleanup func() error, err error)
-	Walk    func(root string) ([]string, error)
-	OnStart func(name, zone string)
+	API         API
+	Disk        API
+	ProdProject string
+	Worker      Worker
+	Only        []string
+	Timeout     time.Duration
+	Mount       func(ctx context.Context, device string) (root string, cleanup func() error, err error)
+	Walk        func(root string) ([]string, error)
+	OnStart     func(name, zone string)
 
 	cleanupErrs []error
 }
@@ -133,9 +156,21 @@ func (s *Scanner) list(ctx context.Context) ([]Instance, Instance, error) {
 	if err != nil {
 		return nil, Instance{}, err
 	}
-	worker, err := findInstance(instances, s.Worker.Zone+"/"+s.Worker.Name)
-	if err != nil {
-		return nil, Instance{}, fmt.Errorf("worker %s/%s is not in %s", s.Worker.Zone, s.Worker.Name, s.Worker.Region())
+	var worker Instance
+	if s.Disk != nil {
+		scanned, err := s.Disk.List(ctx, s.Worker.Region())
+		if err != nil {
+			return nil, Instance{}, err
+		}
+		worker, err = findInstance(scanned, s.Worker.Zone+"/"+s.Worker.Name)
+		if err != nil {
+			return nil, Instance{}, fmt.Errorf("worker %s/%s is not in the scanner project", s.Worker.Zone, s.Worker.Name)
+		}
+	} else {
+		worker, err = findInstance(instances, s.Worker.Zone+"/"+s.Worker.Name)
+		if err != nil {
+			return nil, Instance{}, fmt.Errorf("worker %s/%s is not in %s", s.Worker.Zone, s.Worker.Name, s.Worker.Region())
+		}
 	}
 	if len(s.Only) == 0 {
 		return instances, worker, nil
@@ -172,14 +207,14 @@ func (s *Scanner) scanInstance(ctx context.Context, inst Instance, devices []str
 	if err != nil {
 		return Result{}, fmt.Errorf("%s: %w", instLabel(res), err)
 	}
-	disk, err := s.API.CreateDisk(ctx, s.Worker.Zone, snap, inst.Name)
+	disk, err := s.diskAPI().CreateDisk(ctx, s.Worker.Zone, s.snapshotRef(snap), inst.Name)
 	if disk != "" {
 		defer s.deleteDisk(s.Worker.Zone, disk)
 	}
 	if err != nil {
 		return Result{}, fmt.Errorf("%s: %w", instLabel(res), err)
 	}
-	if err := s.API.Attach(ctx, s.Worker.Zone, s.Worker.Name, disk, device); err != nil {
+	if err := s.diskAPI().Attach(ctx, s.Worker.Zone, s.Worker.Name, disk, device); err != nil {
 		return Result{}, fmt.Errorf("%s: %w", instLabel(res), err)
 	}
 	defer s.detach(s.Worker.Zone, device)
@@ -206,10 +241,24 @@ func (s *Scanner) scanInstance(ctx context.Context, inst Instance, devices []str
 	return res, nil
 }
 
+func (s *Scanner) diskAPI() API {
+	if s.Disk != nil {
+		return s.Disk
+	}
+	return s.API
+}
+
+func (s *Scanner) snapshotRef(name string) string {
+	if s.Disk == nil || s.ProdProject == "" || strings.Contains(name, "/") {
+		return name
+	}
+	return "projects/" + s.ProdProject + "/global/snapshots/" + name
+}
+
 func (s *Scanner) detach(zone, device string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if err := s.API.Detach(ctx, zone, s.Worker.Name, device); err != nil && !isNotFound(err) {
+	if err := s.diskAPI().Detach(ctx, zone, s.Worker.Name, device); err != nil && !isNotFound(err) {
 		s.note(fmt.Errorf("detach disk %s: %w", device, err))
 	}
 }
@@ -217,7 +266,7 @@ func (s *Scanner) detach(zone, device string) {
 func (s *Scanner) deleteDisk(zone, name string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if err := s.API.DeleteDisk(ctx, zone, name); err != nil && !isNotFound(err) {
+	if err := s.diskAPI().DeleteDisk(ctx, zone, name); err != nil && !isNotFound(err) {
 		s.note(fmt.Errorf("delete disk %s: %w", name, err))
 	}
 }

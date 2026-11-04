@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR 008: Boot-image package inventory
 
-**Status:** Accepted  
+**Status:** Accepted. The worker location is superseded by [ADR 009](./009-scanner-account.md).  
 **Date:** 2026-10-26  
 **Phase:** 4
 

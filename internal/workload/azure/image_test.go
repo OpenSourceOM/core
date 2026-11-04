@@ -41,12 +41,15 @@ func TestMachineFromImageReference(t *testing.T) {
 }
 
 func TestImagePermissionsDoNotSnapshot(t *testing.T) {
-	if !slices.Contains(ImagePermissions, "Microsoft.Compute/images/read") || !slices.Contains(ImagePermissions, "Microsoft.Compute/disks/write") {
+	if !slices.Contains(ImagePermissions, "Microsoft.Compute/images/read") {
 		t.Fatalf("permissions = %v", ImagePermissions)
 	}
+	if !slices.Contains(WorkerPermissions, "Microsoft.Compute/disks/write") {
+		t.Fatalf("worker = %v", WorkerPermissions)
+	}
 	for _, action := range ImagePermissions {
-		if strings.Contains(action, "snapshots") {
-			t.Errorf("image scan must not use %s", action)
+		if strings.Contains(action, "snapshots") || strings.Contains(action, "disks/write") || strings.Contains(action, "attachDetach") {
+			t.Errorf("image scan must not use %s on the production subscription", action)
 		}
 	}
 }

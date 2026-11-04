@@ -102,7 +102,11 @@ func (c *Client) DeleteSnapshot(ctx context.Context, group, name string) error {
 
 func (c *Client) CreateDisk(ctx context.Context, group, location, snapshotName string, zones []string, vm string) (string, error) {
 	name := objectName(vm)
-	poller, err := c.disks.BeginCreateOrUpdate(ctx, group, name, diskBody(location, c.resourceID(group, "snapshots", snapshotName), zones, vm), nil)
+	source := snapshotName
+	if !strings.HasPrefix(snapshotName, "/") {
+		source = c.resourceID(group, "snapshots", snapshotName)
+	}
+	poller, err := c.disks.BeginCreateOrUpdate(ctx, group, name, diskBody(location, source, zones, vm), nil)
 	if err != nil {
 		return "", fmt.Errorf("create disk: %w", err)
 	}

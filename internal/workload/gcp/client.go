@@ -99,7 +99,11 @@ func (c *Client) DeleteSnapshot(ctx context.Context, name string) error {
 
 func (c *Client) CreateDisk(ctx context.Context, zone, snapshotName, vm string) (string, error) {
 	name := objectName(vm)
-	op, err := c.svc.Disks.Insert(c.project, zone, diskBody(name, zone, c.snapshotLink(snapshotName), vm)).Context(ctx).Do()
+	link := snapshotName
+	if !strings.Contains(snapshotName, "/") {
+		link = c.snapshotLink(snapshotName)
+	}
+	op, err := c.svc.Disks.Insert(c.project, zone, diskBody(name, zone, link, vm)).Context(ctx).Do()
 	if err != nil {
 		return "", fmt.Errorf("create disk: %w", err)
 	}
