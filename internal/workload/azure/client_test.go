@@ -94,9 +94,11 @@ func TestCheckSubscription(t *testing.T) {
 	if err := CheckSubscription("sub", "SUB"); err != nil {
 		t.Fatal(err)
 	}
-	err := CheckSubscription("other", "sub")
-	if err == nil || err.Error() != "this VM is in subscription other; set AZURE_SUBSCRIPTION_ID=other" {
-		t.Fatalf("err = %v", err)
+	if err := CheckSubscription("other", "sub"); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckSubscription("", "sub"); err == nil {
+		t.Fatal("expected an empty subscription to fail")
 	}
 }
 

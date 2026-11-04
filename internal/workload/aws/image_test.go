@@ -16,13 +16,16 @@ import (
 )
 
 func TestImagePermissionsDoNotDeleteTheImageSnapshot(t *testing.T) {
-	if !slices.Contains(ImagePermissions, "ec2:DescribeImages") || !slices.Contains(ImagePermissions, "ec2:CreateVolume") {
+	if !slices.Contains(ImagePermissions, "ec2:DescribeImages") || !slices.Contains(ImagePermissions, "ec2:ModifySnapshotAttribute") {
 		t.Fatalf("permissions = %v", ImagePermissions)
 	}
-	for _, action := range []string{"ec2:CreateSnapshot", "ec2:DeleteSnapshot"} {
+	for _, action := range []string{"ec2:CreateSnapshot", "ec2:DeleteSnapshot", "ec2:CreateVolume", "ec2:AttachVolume"} {
 		if slices.Contains(ImagePermissions, action) {
 			t.Errorf("image scan must not %s", action)
 		}
+	}
+	if !slices.Contains(WorkerPermissions, "ec2:CreateVolume") || !slices.Contains(WorkerPermissions, "ec2:CopySnapshot") {
+		t.Fatalf("worker = %v", WorkerPermissions)
 	}
 }
 
@@ -214,6 +217,49 @@ func TestScanImageDeletesVolumeWhenWalkFails(t *testing.T) {
 	assertOrder(t, fake.log, "CreateVolume", "AttachVolume", "DetachVolume", "DeleteVolume")
 	if slices.Contains(fake.log, "DeleteSnapshot") || len(fake.vols) != 0 {
 		t.Fatalf("log=%v vols=%d", fake.log, len(fake.vols))
+	}
+}
+
+func TestScanImageCopiesInTheScannerAccount(t *testing.T) {
+	web := linuxInstance("i-web", "web", "vol-web")
+	web.ImageId = aws.String("ami-golden")
+	prod := newFake([]ec2types.Instance{web})
+	prod.images = []ec2types.Image{testAMI("ami-golden", "golden", "snap-golden")}
+	prod.snaps["snap-golden"] = &snapState{state: ec2types.SnapshotStateCompleted}
+	worker := linuxInstance("i-worker", "worker", "vol-worker")
+	worker.BlockDeviceMappings = append(worker.BlockDeviceMappings, ec2types.InstanceBlockDeviceMapping{
+		DeviceName: aws.String("/dev/sdf"),
+		Ebs:        &ec2types.EbsInstanceBlockDevice{VolumeId: aws.String("vol-extra")},
+	})
+	local := newFake([]ec2types.Instance{worker})
+	scanner := testScanner(t, local, func(context.Context, string) (string, func() error, error) {
+		dir := t.TempDir()
+		writeRoot(t, dir)
+		return dir, func() error { return nil }, nil
+	}, workload.Walk)
+	scanner.Prod = prod
+	scanner.AccountID = "999988887777"
+	scanner.Worker.Region = "us-east-1"
+
+	var got []ImageResult
+	if err := scanner.ScanImages(context.Background(), nil, func(res ImageResult) error {
+		got = append(got, res)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ImageID != "ami-golden" || got[0].Skipped != "" {
+		t.Fatalf("results = %#v", got)
+	}
+	if slices.Contains(prod.log, "DeleteSnapshot") || slices.Contains(prod.log, "CreateVolume") || slices.Contains(prod.log, "AttachVolume") {
+		t.Fatalf("production account changed the image snapshot: %v", prod.log)
+	}
+	if !slices.Contains(prod.log, "ModifySnapshotAttribute") {
+		t.Fatalf("prod log = %v", prod.log)
+	}
+	assertOrder(t, local.log, "CopySnapshot", "CreateVolume", "AttachVolume", "DeleteVolume", "DeleteSnapshot")
+	if _, ok := prod.snaps["snap-golden"]; !ok {
+		t.Fatal("AMI snapshot was deleted")
 	}
 }
 

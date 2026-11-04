@@ -17,23 +17,15 @@ import (
 	"google.golang.org/api/googleapi"
 )
 
-// ImagePermissions are the IAM permissions om scan workload image gcp adds.
-// The image itself is not deleted. useToDecrypt is the unwrap a
-// customer-managed key needs when the disk keeps that key. om scan gcp does
-// not gain these permissions.
+// ImagePermissions are the IAM permissions granted on the project being
+// scanned so the worker can read boot images. Disk create and attach belong
+// to WorkerPermissions. The image itself is not deleted.
 var ImagePermissions = []string{
 	"compute.instances.list",
 	"compute.disks.list",
 	"compute.images.list",
+	"compute.images.get",
 	"compute.images.useReadOnly",
-	"compute.disks.create",
-	"compute.disks.delete",
-	"compute.disks.useReadOnly",
-	"compute.instances.attachDisk",
-	"compute.instances.detachDisk",
-	"compute.zoneOperations.get",
-	"cloudkms.cryptoKeyVersions.useToDecrypt",
-	"cloudkms.cryptoKeyVersions.useToEncrypt",
 }
 
 // ImageVM is a GCE instance launched from one boot image.
@@ -73,8 +65,11 @@ type ImageAPI interface {
 var _ ImageAPI = (*Client)(nil)
 
 // ImageScanner reads each boot image once and deletes the disk it created.
+// Disk, when set, is the scanner project. API lists images in the project
+// being scanned.
 type ImageScanner struct {
 	API     ImageAPI
+	Disk    ImageAPI
 	Worker  Worker
 	Only    []string
 	Timeout time.Duration
@@ -95,7 +90,7 @@ func (s *ImageScanner) Scan(ctx context.Context, write func(ImageResult) error) 
 	if s.API == nil || s.Mount == nil || s.Walk == nil {
 		return fmt.Errorf("workload scan is missing a Compute client, mount, or package walker")
 	}
-	images, devices, err := s.API.ListBootImages(ctx, s.Worker)
+	images, devices, err := s.bootImages(ctx)
 	if err != nil {
 		return err
 	}
@@ -138,7 +133,7 @@ func (s *ImageScanner) scanImage(ctx context.Context, img BootImage, devices []s
 	if s.OnStart != nil {
 		s.OnStart(img.Link, img.Name)
 	}
-	disk, err := s.API.CreateDiskFromImage(ctx, s.Worker.Zone, img.Link, img.Name)
+	disk, err := s.diskAPI().CreateDiskFromImage(ctx, s.Worker.Zone, img.Link, img.Name)
 	if disk != "" {
 		defer s.deleteDisk(s.Worker.Zone, disk)
 	}
@@ -149,7 +144,7 @@ func (s *ImageScanner) scanImage(ctx context.Context, img BootImage, devices []s
 		}
 		return ImageResult{}, fmt.Errorf("%s: %w", imageLabel(img), err)
 	}
-	if err := s.API.Attach(ctx, s.Worker.Zone, s.Worker.Name, disk, device); err != nil {
+	if err := s.diskAPI().Attach(ctx, s.Worker.Zone, s.Worker.Name, disk, device); err != nil {
 		return ImageResult{}, fmt.Errorf("%s: %w", imageLabel(img), err)
 	}
 	defer s.detach(s.Worker.Zone, device)
@@ -176,10 +171,40 @@ func (s *ImageScanner) scanImage(ctx context.Context, img BootImage, devices []s
 	return res, nil
 }
 
+type imageCatalog interface {
+	ListImages(ctx context.Context, region string) ([]BootImage, error)
+}
+
+func (s *ImageScanner) diskAPI() ImageAPI {
+	if s.Disk != nil {
+		return s.Disk
+	}
+	return s.API
+}
+
+func (s *ImageScanner) bootImages(ctx context.Context) ([]BootImage, []string, error) {
+	if s.Disk == nil {
+		return s.API.ListBootImages(ctx, s.Worker)
+	}
+	catalog, ok := s.API.(imageCatalog)
+	if !ok {
+		return nil, nil, fmt.Errorf("production client cannot list images")
+	}
+	images, err := catalog.ListImages(ctx, s.Worker.Region())
+	if err != nil {
+		return nil, nil, err
+	}
+	_, devices, err := s.Disk.ListBootImages(ctx, s.Worker)
+	if err != nil {
+		return nil, nil, err
+	}
+	return images, devices, nil
+}
+
 func (s *ImageScanner) detach(zone, device string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if err := s.API.Detach(ctx, zone, s.Worker.Name, device); err != nil && !isNotFound(err) {
+	if err := s.diskAPI().Detach(ctx, zone, s.Worker.Name, device); err != nil && !isNotFound(err) {
 		s.note(fmt.Errorf("detach disk %s: %w", device, err))
 	}
 }
@@ -187,7 +212,7 @@ func (s *ImageScanner) detach(zone, device string) {
 func (s *ImageScanner) deleteDisk(zone, name string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if err := s.API.DeleteDisk(ctx, zone, name); err != nil && !isNotFound(err) {
+	if err := s.diskAPI().DeleteDisk(ctx, zone, name); err != nil && !isNotFound(err) {
 		s.note(fmt.Errorf("delete disk %s: %w", name, err))
 	}
 }
@@ -246,6 +271,25 @@ func imageLabel(img BootImage) string {
 
 // ListBootImages returns project images and images that instances in the
 // worker's region were launched from, plus the worker's device names.
+func (c *Client) ListImages(ctx context.Context, region string) ([]BootImage, error) {
+	instances, err := c.List(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+	sources, err := c.diskImages(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+	for i := range instances {
+		instances[i].SourceImage = sources[imageKey(instances[i].BootSource)]
+	}
+	listed, err := c.projectImages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return assembleGCE(listed, instances), nil
+}
+
 func (c *Client) ListBootImages(ctx context.Context, worker Worker) ([]BootImage, []string, error) {
 	if worker.Name == "" || worker.Zone == "" {
 		return nil, nil, fmt.Errorf("worker name and zone are required")

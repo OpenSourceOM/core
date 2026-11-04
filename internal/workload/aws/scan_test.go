@@ -23,14 +23,21 @@ import (
 func TestPermissionsCoverSnapshotLifecycle(t *testing.T) {
 	for _, action := range []string{
 		"ec2:CreateSnapshot",
-		"ec2:AttachVolume",
+		"ec2:ModifySnapshotAttribute",
 		"ec2:DeleteSnapshot",
-		"ec2:DeleteVolume",
 		"kms:CreateGrant",
 		"kms:Decrypt",
 	} {
 		if !slices.Contains(Permissions, action) {
-			t.Errorf("missing %s", action)
+			t.Errorf("production role missing %s", action)
+		}
+	}
+	for _, action := range []string{"ec2:AttachVolume", "ec2:CreateVolume", "ec2:CopySnapshot", "ec2:DeleteVolume"} {
+		if slices.Contains(Permissions, action) {
+			t.Errorf("production role grants %s", action)
+		}
+		if !slices.Contains(WorkerPermissions, action) {
+			t.Errorf("scanner role missing %s", action)
 		}
 	}
 }
@@ -212,6 +219,78 @@ func TestScanPaginatesInstances(t *testing.T) {
 	}
 }
 
+func TestScanSharesSnapshotAndMountsTheCopy(t *testing.T) {
+	prod := newFake([]ec2types.Instance{linuxInstance("i-web", "web", "vol-root")})
+	local := newFake([]ec2types.Instance{testInstances()[0]})
+	scanner := testScanner(t, local, func(ctx context.Context, volumeID string) (string, func() error, error) {
+		dir := t.TempDir()
+		writeRoot(t, dir)
+		return dir, func() error { return nil }, nil
+	}, workload.Walk)
+	scanner.Prod = prod
+	scanner.AccountID = "999988887777"
+	scanner.Worker.Region = "us-east-1"
+	scanner.Only = []string{"i-web"}
+
+	var got []Result
+	if err := scanner.Scan(context.Background(), func(res Result) error {
+		got = append(got, res)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Skipped != "" || len(got[0].Packages) == 0 {
+		t.Fatalf("results = %#v", got)
+	}
+	assertOrder(t, prod.log, "CreateSnapshot", "ModifySnapshotAttribute", "DeleteSnapshot")
+	assertOrder(t, local.log, "CopySnapshot", "CreateVolume", "AttachVolume", "DetachVolume", "DeleteVolume", "DeleteSnapshot")
+	if slices.Contains(prod.log, "AttachVolume") || slices.Contains(prod.log, "CreateVolume") || slices.Contains(prod.log, "CopySnapshot") {
+		t.Fatalf("production account mounted a volume: %v", prod.log)
+	}
+	if len(local.volInputs) != 1 || aws.ToString(local.volInputs[0].SnapshotId) != "snap-1" {
+		t.Fatalf("volume = %#v", local.volInputs)
+	}
+	if len(local.copyInputs) != 1 || aws.ToString(local.copyInputs[0].SourceSnapshotId) != "snap-1" || aws.ToString(local.copyInputs[0].SourceRegion) != "us-east-1" {
+		t.Fatalf("copy = %#v", local.copyInputs)
+	}
+	if len(prod.shareInputs) != 2 || aws.ToString(prod.shareInputs[0].SnapshotId) != "snap-1" {
+		t.Fatalf("share = %#v", prod.shareInputs)
+	}
+	if len(prod.shareInputs[0].CreateVolumePermission.Add) != 1 || aws.ToString(prod.shareInputs[0].CreateVolumePermission.Add[0].UserId) != "999988887777" {
+		t.Fatalf("share add = %#v", prod.shareInputs[0].CreateVolumePermission)
+	}
+	if len(prod.shareInputs[1].CreateVolumePermission.Remove) != 1 {
+		t.Fatalf("share remove = %#v", prod.shareInputs[1].CreateVolumePermission)
+	}
+	if len(prod.snaps) != 0 || len(local.snaps) != 0 || len(local.vols) != 0 {
+		t.Fatalf("leftover prod snaps=%d local snaps=%d vols=%d", len(prod.snaps), len(local.snaps), len(local.vols))
+	}
+}
+
+func TestScanRefusesEncryptedSnapshotWithoutScannerKey(t *testing.T) {
+	prod := newFake([]ec2types.Instance{linuxInstance("i-web", "web", "vol-root")})
+	prod.encryptSnapshots = true
+	local := newFake([]ec2types.Instance{testInstances()[0]})
+	scanner := testScanner(t, local, func(context.Context, string) (string, func() error, error) {
+		t.Fatal("encrypted snapshot was mounted")
+		return "", nil, nil
+	}, workload.Walk)
+	scanner.Prod = prod
+	scanner.AccountID = "999988887777"
+	scanner.Worker.Region = "us-east-1"
+	scanner.Only = []string{"i-web"}
+	err := scanner.Scan(context.Background(), nil)
+	if err == nil || !strings.Contains(err.Error(), "--kms-key") {
+		t.Fatalf("err = %v", err)
+	}
+	if slices.Contains(local.log, "CopySnapshot") || slices.Contains(local.log, "CreateVolume") {
+		t.Fatalf("local log = %v", local.log)
+	}
+	if len(prod.snaps) != 0 {
+		t.Fatal("source snapshot left behind")
+	}
+}
+
 func TestFreeDeviceSkipsNamesInUse(t *testing.T) {
 	got := freeDevice([]ec2types.InstanceBlockDeviceMapping{
 		{DeviceName: aws.String("/dev/xvdf")},
@@ -327,23 +406,26 @@ type volRec struct {
 }
 
 type fakeEC2 struct {
-	instances     []ec2types.Instance
-	pages         int
-	describePages int
-	log           []string
-	snapN         int
-	volN          int
-	snaps         map[string]*snapState
-	vols          map[string]*volRec
-	snapInputs    []*ec2.CreateSnapshotInput
-	volInputs     []*ec2.CreateVolumeInput
-	attachInputs  []*ec2.AttachVolumeInput
-	stuckSnapshot bool
-	delaySnapshot bool
-	images        []ec2types.Image
-	shared        []ec2types.Image
-	imageErr      map[string]error
-	denySnap      map[string]error
+	instances        []ec2types.Instance
+	pages            int
+	describePages    int
+	log              []string
+	snapN            int
+	volN             int
+	snaps            map[string]*snapState
+	vols             map[string]*volRec
+	snapInputs       []*ec2.CreateSnapshotInput
+	volInputs        []*ec2.CreateVolumeInput
+	attachInputs     []*ec2.AttachVolumeInput
+	stuckSnapshot    bool
+	delaySnapshot    bool
+	images           []ec2types.Image
+	shared           []ec2types.Image
+	imageErr         map[string]error
+	denySnap         map[string]error
+	encryptSnapshots bool
+	shareInputs      []*ec2.ModifySnapshotAttributeInput
+	copyInputs       []*ec2.CopySnapshotInput
 }
 
 func newFake(instances []ec2types.Instance) *fakeEC2 {
@@ -407,8 +489,24 @@ func (f *fakeEC2) DescribeSnapshots(_ context.Context, in *ec2.DescribeSnapshots
 		Snapshots: []ec2types.Snapshot{{
 			SnapshotId: aws.String(in.SnapshotIds[0]),
 			State:      st.state,
+			Encrypted:  aws.Bool(f.encryptSnapshots),
 		}},
 	}, nil
+}
+
+func (f *fakeEC2) ModifySnapshotAttribute(_ context.Context, in *ec2.ModifySnapshotAttributeInput, _ ...func(*ec2.Options)) (*ec2.ModifySnapshotAttributeOutput, error) {
+	f.log = append(f.log, "ModifySnapshotAttribute")
+	f.shareInputs = append(f.shareInputs, in)
+	return &ec2.ModifySnapshotAttributeOutput{}, nil
+}
+
+func (f *fakeEC2) CopySnapshot(_ context.Context, in *ec2.CopySnapshotInput, _ ...func(*ec2.Options)) (*ec2.CopySnapshotOutput, error) {
+	f.log = append(f.log, "CopySnapshot")
+	f.copyInputs = append(f.copyInputs, in)
+	f.snapN++
+	id := fmt.Sprintf("snap-%d", f.snapN)
+	f.snaps[id] = &snapState{state: ec2types.SnapshotStateCompleted}
+	return &ec2.CopySnapshotOutput{SnapshotId: aws.String(id)}, nil
 }
 
 func (f *fakeEC2) DescribeImages(_ context.Context, in *ec2.DescribeImagesInput, _ ...func(*ec2.Options)) (*ec2.DescribeImagesOutput, error) {

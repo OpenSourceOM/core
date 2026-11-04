@@ -19,13 +19,20 @@ import (
 func TestPermissionsCoverSnapshotLifecycle(t *testing.T) {
 	for _, action := range []string{
 		"compute.disks.createSnapshot",
-		"compute.instances.attachDisk",
 		"compute.snapshots.delete",
-		"compute.disks.delete",
+		"compute.snapshots.useReadOnly",
 		"cloudkms.cryptoKeyVersions.useToDecrypt",
 	} {
 		if !slices.Contains(Permissions, action) {
-			t.Errorf("missing %s", action)
+			t.Errorf("production role missing %s", action)
+		}
+	}
+	if slices.Contains(Permissions, "compute.instances.attachDisk") || slices.Contains(Permissions, "compute.disks.create") {
+		t.Fatalf("production role attaches disks: %v", Permissions)
+	}
+	for _, action := range []string{"compute.instances.attachDisk", "compute.disks.create", "compute.disks.delete"} {
+		if !slices.Contains(WorkerPermissions, action) {
+			t.Errorf("scanner role missing %s", action)
 		}
 	}
 }
@@ -244,9 +251,11 @@ func TestCheckProject(t *testing.T) {
 	if err := CheckProject("p", "p"); err != nil {
 		t.Fatal(err)
 	}
-	err := CheckProject("other", "p")
-	if err == nil || err.Error() != "this instance is in project other; set GCP_PROJECT_ID=other" {
-		t.Fatalf("err = %v", err)
+	if err := CheckProject("other", "p"); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckProject("", "p"); err == nil {
+		t.Fatal("expected an empty project to fail")
 	}
 }
 

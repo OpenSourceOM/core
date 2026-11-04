@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Instance profile for the OpenSourceOM worker. Launch it in this account and tag the instance opensourceom:worker=true.
+
+Parameters:
+  ExternalId:
+    Type: String
+    NoEcho: true
+
+Resources:
+  WorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: opensourceom-worker
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: worker
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CopyAndAttach
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeSnapshots
+                  - ec2:DescribeVolumes
+                  - ec2:CopySnapshot
+                  - ec2:CreateVolume
+                  - ec2:CreateTags
+                  - ec2:AttachVolume
+                  - ec2:DetachVolume
+                  - ec2:DeleteVolume
+                  - ec2:DeleteSnapshot
+                Resource: "*"
+              - Sid: AssumeProduction
+                Effect: Allow
+                Action: sts:AssumeRole
+                Resource: arn:aws:iam::*:role/opensourceom-snapshot
+                Condition:
+                  StringEquals:
+                    sts:ExternalId: !Ref ExternalId
+              - Sid: Keys
+                Effect: Allow
+                Action:
+                  - kms:CreateGrant
+                  - kms:Decrypt
+                  - kms:Encrypt
+                  - kms:DescribeKey
+                  - kms:GenerateDataKeyWithoutPlaintext
+                  - kms:ReEncryptFrom
+                  - kms:ReEncryptTo
+                Resource: "*"
+  WorkerProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: opensourceom-worker
+      Roles:
+        - !Ref WorkerRole
+
+Outputs:
+  RoleArn:
+    Value: !GetAtt WorkerRole.Arn
+  InstanceProfile:
+    Value: !Ref WorkerProfile

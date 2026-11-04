@@ -15,12 +15,15 @@ import (
 )
 
 func TestImagePermissionsDoNotSnapshot(t *testing.T) {
-	if !slices.Contains(ImagePermissions, "compute.images.useReadOnly") || !slices.Contains(ImagePermissions, "compute.disks.create") {
+	if !slices.Contains(ImagePermissions, "compute.images.useReadOnly") {
 		t.Fatalf("permissions = %v", ImagePermissions)
 	}
+	if !slices.Contains(WorkerPermissions, "compute.disks.create") {
+		t.Fatalf("worker = %v", WorkerPermissions)
+	}
 	for _, action := range ImagePermissions {
-		if strings.Contains(action, "snapshot") {
-			t.Errorf("image scan must not use %s", action)
+		if strings.Contains(action, "snapshot") || action == "compute.disks.create" || action == "compute.instances.attachDisk" {
+			t.Errorf("image scan must not use %s on the production project", action)
 		}
 	}
 }

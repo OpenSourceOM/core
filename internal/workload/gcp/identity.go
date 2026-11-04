@@ -35,7 +35,7 @@ func LookupWorker(ctx context.Context) (Worker, error) {
 
 func lookupWorker(ctx context.Context, meta metaAPI) (Worker, error) {
 	if !meta.OnGCE(ctx) {
-		return Worker{}, fmt.Errorf("om scan workload gcp runs on a GCE instance in this project")
+		return Worker{}, fmt.Errorf("om scan workload gcp runs on a GCE instance in the scanner project")
 	}
 	project, err := meta.ProjectID(ctx)
 	if err != nil {
@@ -56,13 +56,11 @@ func lookupWorker(ctx context.Context, meta metaAPI) (Worker, error) {
 	return Worker{Name: name, ProjectID: project, Zone: zone}, nil
 }
 
-// CheckProject reports when this instance is in a different project than GCP_PROJECT_ID.
+// CheckProject reports when either project id is empty.
+// The worker may run in a different project than GCP_PROJECT_ID.
 func CheckProject(workerProject, configured string) error {
 	if workerProject == "" || configured == "" {
 		return fmt.Errorf("GCP project is empty")
-	}
-	if workerProject != configured {
-		return fmt.Errorf("this instance is in project %s; set GCP_PROJECT_ID=%s", workerProject, workerProject)
 	}
 	return nil
 }

@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Grant the OpenSourceOM scanner account permission to snapshot and share. This stack does not attach a disk.
+
+Parameters:
+  ScannerRoleArn:
+    Type: String
+    Description: ARN of opensourceom-worker in the scanner account.
+  ScannerAccountId:
+    Type: String
+    AllowedPattern: "[0-9]{12}"
+  ExternalId:
+    Type: String
+    NoEcho: true
+
+Resources:
+  SnapshotRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: opensourceom-snapshot
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref ScannerRoleArn
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref ExternalId
+      Policies:
+        - PolicyName: snapshot
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Read
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeImages
+                  - ec2:DescribeSnapshots
+                  - ec2:DescribeVolumes
+                Resource: "*"
+              - Sid: CreateTaggedSnapshot
+                Effect: Allow
+                Action:
+                  - ec2:CreateSnapshot
+                  - ec2:CreateTags
+                Resource:
+                  - arn:aws:ec2:*:*:volume/*
+                  - arn:aws:ec2:*::snapshot/*
+                Condition:
+                  StringEquals:
+                    aws:RequestTag/opensourceom:scan: workload
+              - Sid: ShareWithScanner
+                Effect: Allow
+                Action: ec2:ModifySnapshotAttribute
+                Resource: arn:aws:ec2:*::snapshot/*
+                Condition:
+                  StringEquals:
+                    ec2:Add/userId: !Ref ScannerAccountId
+              - Sid: Unshare
+                Effect: Allow
+                Action: ec2:ModifySnapshotAttribute
+                Resource: arn:aws:ec2:*::snapshot/*
+                Condition:
+                  StringEquals:
+                    ec2:Remove/userId: !Ref ScannerAccountId
+              - Sid: DeleteOurSnapshots
+                Effect: Allow
+                Action: ec2:DeleteSnapshot
+                Resource: arn:aws:ec2:*::snapshot/*
+                Condition:
+                  StringEquals:
+                    ec2:ResourceTag/opensourceom:scan: workload
+              - Sid: EncryptedVolumes
+                Effect: Allow
+                Action:
+                  - kms:CreateGrant
+                  - kms:Decrypt
+                  - kms:DescribeKey
+                  - kms:ReEncryptFrom
+                  - kms:ReEncryptTo
+                Resource: "*"
+
+Outputs:
+  RoleArn:
+    Value: !GetAtt SnapshotRole.Arn
