@@ -13,7 +13,7 @@ SPDX-License-Identifier: Apache-2.0
 
 **Self-hosted, graph-native cloud security — prioritize what attackers can actually reach.**
 
-[![OpenSourceOM console — demo graph](docs/assets/console.gif)](https://opensourceom.org)
+![OpenSourceOM console — demo graph](docs/assets/console.gif)
 
 The clip is the web console after `docker compose up` and `om scan demo` — internet-exposed `web-1` on a path to `prod-db`, plus public S3 and an over-privileged admin role.
 
