@@ -13,9 +13,9 @@ SPDX-License-Identifier: Apache-2.0
 
 **Self-hosted, graph-native cloud security — prioritize what attackers can actually reach.**
 
-[![OpenSourceOM console — demo graph](docs/assets/console.png)](https://opensourceom.org)
+[![OpenSourceOM console — demo graph](docs/assets/console.gif)](https://opensourceom.org)
 
-The screenshot is the web console after `docker compose up` and `om scan demo` — internet-exposed `web-1` on a path to `prod-db`, plus public S3 and an over-privileged admin role.
+The clip is the web console after `docker compose up` and `om scan demo` — internet-exposed `web-1` on a path to `prod-db`, plus public S3 and an over-privileged admin role.
 
 OpenSourceOM Core is the platform behind [opensourceom.org](https://opensourceom.org): collectors that ingest cloud inventory and security signals, a graph engine that models attack paths, and APIs/UI to explore risk in context.
 
