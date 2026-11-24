@@ -87,7 +87,7 @@ docker compose up -d
 # Build the CLI
 go build -o om ./cmd/om
 
-# Print this build. A release says 0.5.0. Uncommitted changes add +dirty.
+# Print this build. A release says 0.6.0. Uncommitted changes add +dirty.
 ./om version
 
 # Load the sample graph (no cloud credentials)
@@ -131,7 +131,7 @@ open http://localhost:8080
 
 The API image compiles `github.com/aws/aws-sdk-go-v2/service/ec2`. Give Docker at least 6 GiB of RAM.
 
-The header shows the version of the running build. Open it, or Settings → About, for the git commit and a link to that commit. `GET /v1/version` returns the same information. A release shows its version, such as 0.5.0. A git checkout of that release shows the same version, with `+dirty` when the tree has uncommitted changes.
+The header shows the version of the running build. Open it, or Settings → About, for the git commit and a link to that commit. `GET /v1/version` returns the same information. A release shows its version, such as 0.6.0. A git checkout of that release shows the same version, with `+dirty` when the tree has uncommitted changes.
 
 Settings → Connect a cloud walks through a read-only grant for AWS, Azure, or GCP. It opens the cloud's own stack or script, checks the identity, and can run the inventory scan. It does not ask for an access key or a client secret. `om connect aws` prints the same steps. Leave `--role-arn` unset when this machine already has read access:
 
@@ -171,10 +171,10 @@ The CLI does not read `.env`. It defaults `POSTGRES_HOST` to `localhost`, which 
 **Kubernetes:**
 
 ```bash
-docker build -t ghcr.io/opensourceom/core:0.5.0 .
+docker build -t ghcr.io/opensourceom/core:0.6.0 .
 helm install om deploy/helm/opensourceom \
   --set postgres.password='change-me' \
-  --set image.tag=0.5.0
+  --set image.tag=0.6.0
 ```
 
 Collectors stay off until you enable one and supply credentials, an existing Secret, or `serviceAccountAuth`. The CronJob runs `om scan` against the same Postgres the API reads. `om scan demo` stays a one-shot command. See `scan` in `deploy/helm/opensourceom/values.yaml`.
