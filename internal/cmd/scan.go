@@ -27,12 +27,25 @@ var scanCmd = &cobra.Command{
 	Short: "Run cloud collectors and ingest into the graph",
 }
 
+var (
+	scanAWSRoleARN    string
+	scanAWSExternalID string
+)
+
 var scanAWSCmd = &cobra.Command{
 	Use:   "aws",
 	Short: "Scan the current AWS account (EC2, IAM, S3, security groups) and recent CloudTrail management events",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := loadConfig()
-		collector, err := aws.NewCollector(cmd.Context(), cfg.AWSRegion)
+		roleARN := scanAWSRoleARN
+		if roleARN == "" {
+			roleARN = cfg.AWSRoleARN
+		}
+		externalID := scanAWSExternalID
+		if externalID == "" {
+			externalID = cfg.AWSExternalID
+		}
+		collector, err := aws.NewCollectorWithRole(cmd.Context(), cfg.AWSRegion, roleARN, externalID)
 		if err != nil {
 			return err
 		}
@@ -232,6 +245,8 @@ func scopesFromBatch(batch graph.Batch) []graph.Scope {
 
 func init() {
 	scanPluginCmd.Flags().DurationVar(&pluginTimeout, "timeout", 10*time.Minute, "maximum time to wait for the plugin")
+	scanAWSCmd.Flags().StringVar(&scanAWSRoleARN, "role-arn", "", "inventory role to assume (or AWS_ROLE_ARN)")
+	scanAWSCmd.Flags().StringVar(&scanAWSExternalID, "external-id", "", "external id for that role (or AWS_EXTERNAL_ID)")
 	scanCmd.AddCommand(scanDemoCmd)
 	scanCmd.AddCommand(scanPluginCmd)
 	scanCmd.AddCommand(scanAWSCmd)

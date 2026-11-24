@@ -27,6 +27,8 @@ type Config struct {
 	AdminEmail          string
 	DatabaseURL         string
 	AWSRegion           string
+	AWSRoleARN          string
+	AWSExternalID       string
 	AzureSubscriptionID string
 	AzureLocation       string
 	GCPProjectID        string
@@ -76,6 +78,8 @@ func Load() Config {
 		AdminEmail:          getEnv("OM_ADMIN_EMAIL", ""),
 		DatabaseURL:         databaseURL,
 		AWSRegion:           getEnv("AWS_REGION", "us-east-1"),
+		AWSRoleARN:          getEnv("AWS_ROLE_ARN", ""),
+		AWSExternalID:       getEnv("AWS_EXTERNAL_ID", ""),
 		AzureSubscriptionID: getEnv("AZURE_SUBSCRIPTION_ID", ""),
 		AzureLocation:       getEnv("AZURE_LOCATION", "eastus"),
 		GCPProjectID:        getEnv("GCP_PROJECT_ID", ""),

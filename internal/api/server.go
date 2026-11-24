@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/OpenSourceOM/core/internal/auth"
+	"github.com/OpenSourceOM/core/internal/connect"
 	"github.com/OpenSourceOM/core/internal/export"
 	"github.com/OpenSourceOM/core/internal/graph"
 	"github.com/OpenSourceOM/core/internal/rules"
@@ -41,6 +42,10 @@ type Server struct {
 	sendReset     func(ctx context.Context, to, resetURL string) error
 	loginLimit    *loginLimiter
 	secureCookies bool
+	connections   cloudConnectionStore
+	verifyCloud   func(context.Context, graph.CloudConnection, string) (connect.Identity, error)
+	scanCloud     func(context.Context, graph.CloudConnection) (graph.Batch, []graph.Scope, string, error)
+	saveGraph     func(context.Context, []graph.Scope, graph.Batch) error
 }
 
 type healthChecker interface {
@@ -88,6 +93,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/admins/token", s.handleCreateToken)
 	mux.HandleFunc("POST /v1/admins/token/rotate", s.handleRotateToken)
 	mux.HandleFunc("DELETE /v1/admins/{id}", s.handleDeleteAdmin)
+	mux.HandleFunc("GET /v1/connect", s.handleListConnections)
+	mux.HandleFunc("POST /v1/connect/connections", s.handleCreateConnection)
+	mux.HandleFunc("PATCH /v1/connect/connections/{id}", s.handleUpdateConnection)
+	mux.HandleFunc("DELETE /v1/connect/connections/{id}", s.handleDeleteConnection)
+	mux.HandleFunc("POST /v1/connect/connections/{id}/verify", s.handleVerifyConnection)
+	mux.HandleFunc("POST /v1/connect/connections/{id}/scan", s.handleScanConnection)
+	mux.HandleFunc("GET /v1/connect/templates/{name}", s.handleConnectTemplate)
 	mux.HandleFunc("GET /auth/{provider}/start", s.handleAuthStart)
 	mux.HandleFunc("GET /auth/{provider}/callback", s.handleAuthCallback)
 	mux.HandleFunc("GET /login", handleConsolePage)

@@ -133,6 +133,14 @@ The API image compiles `github.com/aws/aws-sdk-go-v2/service/ec2`. Give Docker a
 
 The header shows the version of the running build. Open it, or Settings → About, for the git commit and a link to that commit. `GET /v1/version` returns the same information. A release shows its version, such as 0.5.0. A git checkout of that release shows the same version, with `+dirty` when the tree has uncommitted changes.
 
+Settings → Connect a cloud walks through a read-only grant for AWS, Azure, or GCP. It opens the cloud's own stack or script, checks the identity, and can run the inventory scan. It does not ask for an access key or a client secret. `om connect aws` prints the same steps. Leave `--role-arn` unset when this machine already has read access:
+
+```bash
+./om scan aws --role-arn "$ROLE_ARN" --external-id "$EXTERNAL_ID"
+```
+
+Package scans still run as root on a worker in the scanner account. The connect screen shows that command. It does not start it.
+
 The console signs people in with an email and password. While no admin exists, the page asks you to create one. Keep the API port private until you do. Set `OM_ADMIN_EMAIL` when that first address should be fixed in advance. `om admin create --email you@example.com` does the same from the machine before the port is reachable.
 
 An admin adds the next person from the console. That person gets a temporary password, shown once, and chooses their own at the next sign-in. SMTP is optional. When it is set, the temporary password is emailed, and a forgotten password can be reset from a one-hour link. Google and GitHub buttons appear only when those client credentials are set, and the provider email must match an existing admin. Every console account is an admin. Two-factor authentication is optional per admin.
