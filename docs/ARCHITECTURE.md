@@ -43,6 +43,7 @@ SPDX-License-Identifier: Apache-2.0
 | **API** | `internal/api/` | REST + embedded console at `/`; personal token or console session on `/v1` except health |
 | **CLI** | `cmd/om/`, `internal/cmd/` | `migrate`, `serve`, `scan`, `rules`, `identity`, `export`, … |
 | **Helm** | `deploy/helm/opensourceom/` | API, optional Postgres, optional scheduled collectors |
+| **Cloud connect** | `deploy/connect/`, `internal/connect/` | Console wizard for the read-only inventory grant and the scanner/production stacks. No access keys |
 
 ## Graph schema (v0)
 

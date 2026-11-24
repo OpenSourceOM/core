@@ -1,5 +1,7 @@
 # Connect a production account
 
+Settings → Connect a cloud walks through these grants and the read-only inventory role. `om connect aws` prints the same steps. The workload scan still runs on the scanner worker.
+
 The workload scan mounts disks only in a scanner account, subscription, or project that you run. Each production account grants a role that can snapshot and share. It does not grant permission to attach a disk or start an instance.
 
 Apply the scanner stack once, then apply the production stack in every account you want to read. Terraform and OpenTofu use the same files. AWS also has CloudFormation and a shell script. Azure has an `az` script. GCP has a `gcloud` script.

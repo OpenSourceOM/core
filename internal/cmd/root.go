@@ -19,6 +19,7 @@ func Execute() error {
 	rootCmd.AddCommand(adminCmd)
 	rootCmd.AddCommand(tokenCmd)
 	rootCmd.AddCommand(scanCmd)
+	rootCmd.AddCommand(connectCmd)
 	rootCmd.AddCommand(enrichCmd)
 	rootCmd.AddCommand(rulesCmd)
 	rootCmd.AddCommand(identityCmd)

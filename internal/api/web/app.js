@@ -580,7 +580,7 @@ function renderFindings(findings, partial) {
     ? "<p class=\"meta\">This list is partial. More findings are past the pages loaded here.</p>"
     : "";
   if (!findings.length) {
-    el.innerHTML = "<p class=\"meta\">No findings yet. Run <code>om rules run</code> or <code>om enrich cve</code> after a scan.</p>" + partialNote;
+    el.innerHTML = "<p class=\"meta\">No findings yet. Connect a cloud from Settings, then run the inventory scan.</p>" + partialNote;
     return;
   }
   el.innerHTML = findings.map((item) => {
@@ -1006,6 +1006,7 @@ async function renderSecurity() {
 
 document.getElementById("security-btn").addEventListener("click", () => {
   closeSettingsMenu();
+  document.getElementById("connect-panel").classList.add("hidden");
   const panel = document.getElementById("security-panel");
   if (!panel.classList.contains("hidden")) {
     panel.classList.add("hidden");
@@ -1013,7 +1014,19 @@ document.getElementById("security-btn").addEventListener("click", () => {
   }
   renderSecurity().catch(showConsoleError);
 });
+document.getElementById("connect-btn").addEventListener("click", () => {
+  closeSettingsMenu();
+  const panel = document.getElementById("connect-panel");
+  if (!panel.classList.contains("hidden")) {
+    panel.classList.add("hidden");
+    return;
+  }
+  document.getElementById("admins-panel").classList.add("hidden");
+  document.getElementById("security-panel").classList.add("hidden");
+  renderConnect().catch(showConsoleError);
+});
 document.getElementById("admins-btn").addEventListener("click", () => {
+  document.getElementById("connect-panel").classList.add("hidden");
   closeSettingsMenu();
   const panel = document.getElementById("admins-panel");
   if (!panel.classList.contains("hidden")) {
@@ -1097,6 +1110,238 @@ async function loadVersion() {
   } catch {
     return;
   }
+}
+
+function connectInput(label, value) {
+  const input = document.createElement("input");
+  input.value = value || "";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  const wrap = document.createElement("label");
+  wrap.className = "connect-field";
+  const span = document.createElement("span");
+  span.textContent = label;
+  wrap.append(span, input);
+  return { wrap, input };
+}
+
+function connectButton(label, className, onClick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+async function renderConnect(selectedId) {
+  const panel = document.getElementById("connect-panel");
+  panel.classList.remove("hidden");
+  panel.replaceChildren();
+  const heading = document.createElement("h2");
+  heading.textContent = "Connect a cloud";
+  const intro = document.createElement("p");
+  intro.className = "meta";
+  intro.textContent = "Approve a read-only grant in the cloud console, then verify it here. The form does not take an access key or a client secret. Package scans still run on a worker in the scanner account.";
+  panel.append(heading, intro);
+  const status = formStatus();
+  const data = await fetchJSON("/v1/connect");
+  const connections = data.connections || [];
+  const providers = document.createElement("div");
+  providers.className = "connect-providers";
+  ["aws", "azure", "gcp"].forEach((provider) => {
+    providers.appendChild(connectButton(provider.toUpperCase(), "btn btn-secondary", async () => {
+      status.textContent = "";
+      try {
+        const created = await fetchJSON("/v1/connect/connections", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider }),
+        });
+        await renderConnect(created.connection.id);
+      } catch (err) {
+        status.textContent = err.message;
+      }
+    }));
+  });
+  panel.append(providers, status);
+  if (!connections.length) return;
+  const list = document.createElement("div");
+  connections.forEach((setup) => {
+    const row = document.createElement("div");
+    row.className = "admin-row";
+    const name = document.createElement("span");
+    const account = setup.connection.account_id || "not verified";
+    name.textContent = `${setup.connection.provider} · ${account}`;
+    row.append(name, connectButton("Open", "btn btn-secondary", () => {
+      renderConnect(setup.connection.id).catch(showConsoleError);
+    }), connectButton("Remove", "", async () => {
+      await fetchJSON(`/v1/connect/connections/${setup.connection.id}`, { method: "DELETE" });
+      await renderConnect();
+    }));
+    list.appendChild(row);
+  });
+  panel.appendChild(list);
+  const selected = connections.find((setup) => setup.connection.id === selectedId) || connections[0];
+  if (!selectedId && connections.length > 1) return;
+  renderConnectForm(panel, selected, status);
+}
+
+function renderConnectForm(panel, setup, status) {
+  const conn = setup.connection;
+  const steps = document.createElement("ol");
+  steps.className = "connect-steps";
+  (setup.steps || []).forEach((text) => {
+    const item = document.createElement("li");
+    item.textContent = text;
+    steps.appendChild(item);
+  });
+  const grid = document.createElement("div");
+  grid.className = "connect-grid";
+  const fields = {};
+  const add = (key, label, value) => {
+    const made = connectInput(label, value);
+    fields[key] = made.input;
+    grid.appendChild(made.wrap);
+  };
+  const external = connectInput("External id", conn.external_id);
+  external.input.readOnly = true;
+  grid.appendChild(external.wrap);
+  if (conn.provider === "aws") {
+    add("region", "Region", conn.region);
+    add("inventory_principal", "Principal trusted by the inventory role", conn.inventory_principal);
+    add("inventory_role_arn", "Inventory role ARN", conn.inventory_role_arn);
+    add("scanner_principal", "Scanner role ARN", conn.scanner_principal);
+    add("scanner_account_id", "Scanner account id", conn.scanner_account_id);
+    add("snapshot_role_arn", "Snapshot role ARN", conn.snapshot_role_arn);
+  } else if (conn.provider === "azure") {
+    add("account_id", "Subscription id", conn.account_id);
+    add("location", "Location", conn.location);
+    add("inventory_principal", "Object id for the inventory grant", conn.inventory_principal);
+    add("scanner_account_id", "Scanner subscription id", conn.scanner_account_id);
+    add("resource_group", "Scanner resource group", conn.resource_group);
+    add("scanner_principal", "Scanner principal object id", conn.scanner_principal);
+  } else {
+    add("account_id", "Project id", conn.account_id);
+    add("region", "Region", conn.region);
+    add("inventory_principal", "Member for the inventory grant", conn.inventory_principal);
+    add("scanner_account_id", "Scanner project id", conn.scanner_account_id);
+    add("scanner_principal", "Scanner service account", conn.scanner_principal);
+  }
+  (setup.links || []).forEach((link) => {
+    const grant = document.createElement("div");
+    grant.className = "connect-grant";
+    const title = document.createElement("h3");
+    title.textContent = link.label;
+    const note = document.createElement("p");
+    note.className = "meta";
+    note.textContent = link.note || "";
+    grant.append(title, note);
+    if (link.url) {
+      const open = document.createElement("a");
+      open.className = "btn btn-secondary";
+      open.href = link.url;
+      open.target = "_blank";
+      open.rel = "noopener noreferrer";
+      open.textContent = "Open in the cloud console";
+      grant.appendChild(open);
+    }
+    if (link.template) {
+      const download = document.createElement("a");
+      download.className = "btn btn-secondary";
+      download.href = `/v1/connect/templates/${link.template}`;
+      download.textContent = "Download";
+      grant.appendChild(download);
+    }
+    if (link.script) {
+      const script = document.createElement("textarea");
+      script.readOnly = true;
+      script.value = link.script;
+      grant.append(script, connectButton("Copy script", "btn btn-secondary", async () => {
+        try {
+          await navigator.clipboard.writeText(link.script);
+          status.textContent = "Copied.";
+        } catch (err) {
+          status.textContent = err.message;
+        }
+      }));
+    }
+    grid.appendChild(grant);
+  });
+  const command = document.createElement("p");
+  command.className = "meta";
+  command.textContent = `On the worker, as root: ${setup.workload_command}`;
+  const actions = document.createElement("div");
+  actions.className = "connect-actions";
+  const payload = () => {
+    const body = { ...conn };
+    Object.entries(fields).forEach(([key, input]) => {
+      body[key] = input.value.trim();
+    });
+    return body;
+  };
+  const save = async () => {
+    return fetchJSON(`/v1/connect/connections/${conn.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload()),
+    });
+  };
+  actions.append(
+    connectButton("Save", "btn btn-secondary", async () => {
+      status.textContent = "";
+      try {
+        await save();
+        status.textContent = "Saved.";
+        await renderConnect(conn.id);
+      } catch (err) {
+        status.textContent = err.message;
+      }
+    }),
+    connectButton("Verify", "btn btn-secondary", async () => {
+      status.textContent = "Checking the inventory grant…";
+      try {
+        await save();
+        const identity = await fetchJSON(`/v1/connect/connections/${conn.id}/verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target: "inventory" }),
+        });
+        status.textContent = `Verified ${identity.account_id || ""}${identity.principal ? " as " + identity.principal : ""}.`;
+        await renderConnect(conn.id);
+      } catch (err) {
+        status.textContent = err.message;
+      }
+    }),
+    connectButton("Run inventory scan", "btn btn-primary", async () => {
+      status.textContent = "Scanning. This can take a few minutes.";
+      try {
+        await save();
+        const result = await fetchJSON(`/v1/connect/connections/${conn.id}/scan`, { method: "POST" });
+        status.textContent = `${result.label}: ${result.nodes} nodes, ${result.edges} edges.`;
+        await loadConsole();
+      } catch (err) {
+        status.textContent = err.message;
+      }
+    }),
+  );
+  if (conn.provider === "aws") {
+    actions.appendChild(connectButton("Verify snapshot role", "btn btn-secondary", async () => {
+      status.textContent = "Checking the snapshot role…";
+      try {
+        await save();
+        const identity = await fetchJSON(`/v1/connect/connections/${conn.id}/verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target: "snapshot" }),
+        });
+        status.textContent = `Snapshot role is ${identity.principal || identity.account_id}.`;
+      } catch (err) {
+        status.textContent = err.message;
+      }
+    }));
+  }
+  panel.append(steps, grid, command, actions);
 }
 
 document.getElementById("about-btn").addEventListener("click", openAbout);

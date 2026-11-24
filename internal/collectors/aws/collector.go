@@ -10,7 +10,6 @@ import (
 
 	"github.com/OpenSourceOM/core/internal/graph"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -18,34 +17,21 @@ import (
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
 type Collector struct {
-	Region    string
-	AccountID string
+	Region     string
+	AccountID  string
+	roleARN    string
+	externalID string
 }
 
 func NewCollector(ctx context.Context, region string) (*Collector, error) {
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
-	if err != nil {
-		return nil, fmt.Errorf("load aws config: %w", err)
-	}
-
-	stsClient := sts.NewFromConfig(cfg)
-	identity, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
-	if err != nil {
-		return nil, fmt.Errorf("get caller identity: %w", err)
-	}
-
-	return &Collector{
-		Region:    region,
-		AccountID: aws.ToString(identity.Account),
-	}, nil
+	return NewCollectorWithRole(ctx, region, "", "")
 }
 
 func (c *Collector) Collect(ctx context.Context) (graph.Batch, error) {
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(c.Region))
+	cfg, err := loadConfig(ctx, c.Region, c.roleARN, c.externalID)
 	if err != nil {
 		return graph.Batch{}, err
 	}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	awscol "github.com/OpenSourceOM/core/internal/collectors/aws"
 	awsv "github.com/OpenSourceOM/core/internal/workload/aws"
 	azurev "github.com/OpenSourceOM/core/internal/workload/azure"
 	gcpv "github.com/OpenSourceOM/core/internal/workload/gcp"
@@ -27,6 +28,9 @@ func TestConnectTemplatesMatchPermissions(t *testing.T) {
 	check(t, filepath.Join(root, "azure/scanner"), azurev.WorkerPermissions, []string{"Microsoft.Compute/snapshots/write"})
 	check(t, filepath.Join(root, "gcp/production"), gcpv.Permissions, []string{"compute.instances.attachDisk", "compute.disks.create"})
 	check(t, filepath.Join(root, "gcp/scanner"), gcpv.WorkerPermissions, []string{"compute.disks.createSnapshot", "compute.snapshots.create"})
+	check(t, filepath.Join(root, "aws/inventory"), awscol.ReadPermissions, []string{"ec2:CreateSnapshot", "ec2:AttachVolume", "iam:CreateRole"})
+	check(t, filepath.Join(root, "azure/inventory"), []string{"Reader", "Monitoring Reader"}, []string{"Microsoft.Compute/snapshots/write"})
+	check(t, filepath.Join(root, "gcp/inventory"), []string{"roles/viewer", "roles/iam.securityReviewer", "roles/logging.viewer"}, []string{"compute.disks.createSnapshot"})
 }
 
 func check(t *testing.T, dir string, want, forbid []string) {

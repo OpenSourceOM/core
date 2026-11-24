@@ -1,0 +1,72 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Read-only role for OpenSourceOM inventory. This stack does not create snapshots or attach disks.
+
+Parameters:
+  ExternalId:
+    Type: String
+    NoEcho: true
+    Description: Trust condition from the OpenSourceOM connect screen.
+  PrincipalArn:
+    Type: String
+    Default: ""
+    Description: ARN of the IAM user or role that runs OpenSourceOM. Leave empty to trust this account. The external id is still required.
+
+Conditions:
+  HasPrincipal: !Not [!Equals [!Ref PrincipalArn, ""]]
+
+Resources:
+  InventoryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: opensourceom-inventory
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !If
+                - HasPrincipal
+                - !Ref PrincipalArn
+                - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref ExternalId
+      Policies:
+        - PolicyName: inventory
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Inventory
+                Effect: Allow
+                Action:
+                  - cloudtrail:LookupEvents
+                  - ec2:DescribeInstances
+                  - ec2:DescribeSecurityGroups
+                  - iam:GetAccessKeyLastUsed
+                  - iam:GetInstanceProfile
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                  - iam:GetRolePolicy
+                  - iam:GetUserPolicy
+                  - iam:ListAccessKeys
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListAttachedUserPolicies
+                  - iam:ListMFADevices
+                  - iam:ListRolePolicies
+                  - iam:ListRoles
+                  - iam:ListUserPolicies
+                  - iam:ListUsers
+                  - rds:DescribeDBInstances
+                  - s3:GetBucketAcl
+                  - s3:GetBucketPolicy
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:GetBucketTagging
+                  - s3:GetBucketVersioning
+                  - s3:GetEncryptionConfiguration
+                  - s3:ListAllMyBuckets
+                Resource: "*"
+
+Outputs:
+  RoleArn:
+    Value: !GetAtt InventoryRole.Arn

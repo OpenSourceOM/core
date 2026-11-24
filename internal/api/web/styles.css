@@ -456,6 +456,20 @@ select {
   margin-top: 0.85rem;
 }
 .admins input, .token-banner input, .invite-form input { width: 100%; }
+.connect-steps { margin: 0.6rem 0 0; padding-left: 1.2rem; }
+.connect-steps li { margin: 0.28rem 0; }
+.connect-providers, .connect-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.85rem; }
+.connect-grid { display: grid; gap: 0.55rem; margin-top: 0.85rem; }
+.connect-field { display: grid; gap: 0.25rem; }
+.connect-field span { color: var(--muted); font-size: 0.78rem; }
+.connect textarea {
+  width: 100%;
+  min-height: 7rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+.connect-grant { margin-top: 0.9rem; padding-top: 0.8rem; border-top: 1px solid var(--border); }
+.connect-grant h3 { margin: 0 0 0.35rem; font-size: 0.92rem; }
 .invite-form input { flex: 1; }
 .token-banner {
   border-color: rgba(34, 211, 238, 0.35);
