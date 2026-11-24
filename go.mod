@@ -1,6 +1,6 @@
 module github.com/OpenSourceOM/core
 
-go 1.27.3
+go 1.27.4
 
 require (
 	cloud.google.com/go/compute/metadata v0.10.0
